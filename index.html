@@ -1,0 +1,3173 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>学校向け公用車アルコールチェック・運行管理システム</title>
+  <meta name="description" content="中学校・高校・特別支援学校等において、乗車前のアルコール点呼をスマホで完結し、Gemini AIによるチェッカー数値自動解析と安全運転管理者のリアルタイム確認・台帳管理を行うWebアプリケーション。">
+  <meta property="og:title" content="学校向け公用車アルコールチェック・運行管理システム">
+  <meta property="og:description" content="中学校・高校・特別支援学校等において、乗車前のアルコール点呼をスマホで完結し、Gemini AIによるチェッカー数値自動解析と安全運転管理者のリアルタイム確認・台帳管理を行うWebアプリケーション。">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- QRCode.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#f0f7ff',
+              100: '#e0effe',
+              500: '#0284c7',
+              600: '#0369a1',
+              700: '#075985',
+              900: '#0c4a6e',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+    
+    body {
+      font-family: 'Noto Sans JP', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Japanese Hanko stamp style */
+    .hanko-stamp {
+      position: relative;
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 72px;
+      height: 72px;
+      border: 3px double #dc2626;
+      border-radius: 50%;
+      color: #dc2626;
+      font-weight: 800;
+      line-height: 1.1;
+      transform: rotate(-10deg);
+      user-select: none;
+      background: rgba(254, 242, 242, 0.85);
+      box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.2);
+    }
+    .hanko-stamp::before {
+      content: '';
+      position: absolute;
+      inset: 2px;
+      border: 1px solid rgba(220, 38, 38, 0.4);
+      border-radius: 50%;
+    }
+
+    /* Print styling for vehicle QR sheet and official roll-call ledger */
+    @media print {
+      body * {
+        visibility: hidden;
+      }
+      #printArea, #printArea *,
+      #ledgerPrintArea, #ledgerPrintArea * {
+        visibility: visible;
+      }
+      #printArea {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 100%;
+        margin: 0;
+        padding: 20mm;
+        background: white !important;
+        box-shadow: none !important;
+      }
+      #ledgerPrintArea {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 100%;
+        margin: 0;
+        padding: 10mm;
+        background: white !important;
+        box-shadow: none !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+
+    /* Subtle pulse animation for warnings */
+    @keyframes alertGlow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+      50% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+    }
+    .alert-glow {
+      animation: alertGlow 2s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col antialiased selection:bg-sky-500 selection:text-white">
+
+  <!-- ================= HEADER ================= -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-600 to-indigo-600 text-white flex items-center justify-center shadow-md shadow-sky-500/20">
+          <i data-lucide="shield-check" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-tight">学校公用車 点呼・アルコール管理</h1>
+            <span id="dataModeBadge" class="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 border border-emerald-200">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>Firestore連動中
+            </span>
+          </div>
+          <p class="text-xs text-slate-500">道交法遵守・スマホ撮影＆Gemini AI自動判定システム</p>
+        </div>
+      </div>
+
+      <!-- Header actions -->
+      <div class="flex items-center gap-2">
+        <button id="btnHeaderSaveHtml" title="単一HTMLファイルとして保存" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg text-slate-600 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition">
+          <i data-lucide="download" class="w-4 h-4"></i>
+          <span>単一HTML保存</span>
+        </button>
+
+        <button id="btnToggleRole" class="inline-flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 text-xs sm:text-sm font-semibold rounded-xl text-white bg-slate-900 hover:bg-slate-800 active:scale-95 shadow-sm transition">
+          <i data-lucide="lock" class="w-4 h-4" id="roleIcon"></i>
+          <span id="roleBtnText">管理者画面へ</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= MAIN CONTENT CONTAINER ================= -->
+  <main class="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
+
+    <!-- ================= VIEW A: 先生用スマート点呼画面 ================= -->
+    <div id="viewTeacher" class="max-w-xl mx-auto space-y-6">
+
+      <!-- Welcoming banner & QR Detection notification -->
+      <div id="qrDetectedBanner" class="hidden p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center justify-between shadow-xs">
+        <div class="flex items-center gap-2.5">
+          <div class="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+            <i data-lucide="qr-code" class="w-5 h-5"></i>
+          </div>
+          <div class="text-xs sm:text-sm">
+            <span class="font-bold">QRコード連動:</span>
+            <span id="qrDetectedVehicleName" class="font-bold text-emerald-800 underline ml-1"></span>
+            <span>が自動選択されました</span>
+          </div>
+        </div>
+        <span class="text-xs px-2 py-0.5 rounded-md bg-emerald-200 font-semibold text-emerald-900 shrink-0">車載QR</span>
+      </div>
+
+      <!-- MAIN INSPECTION FORM -->
+      <form id="inspectionForm" class="space-y-6 bg-white border border-slate-200/80 rounded-3xl p-5 sm:p-7 shadow-sm">
+        
+        <!-- STEP 1: 運転者（教員）の選択 -->
+        <div>
+          <div class="flex items-center justify-between mb-2.5">
+            <label class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+              <span class="w-5 h-5 rounded-full bg-sky-600 text-white text-xs flex items-center justify-center font-bold">1</span>
+              運転者（教員名）を選択 <span class="text-rose-500 font-bold">*</span>
+            </label>
+            <span id="selectedTeacherDisplay" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">未選択</span>
+          </div>
+
+          <!-- Frequent Teachers (★マーク教員) Quick Buttons -->
+          <div class="space-y-2">
+            <div class="text-xs text-slate-500 font-medium flex items-center gap-1">
+              <i data-lucide="star" class="w-3.5 h-3.5 text-amber-500 fill-amber-400"></i>
+              よく乗車する先生（ワンタップ選択）:
+            </div>
+            <div id="frequentTeachersContainer" class="flex flex-wrap gap-2">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Other Teachers Dropdown -->
+          <div class="mt-3">
+            <div class="relative">
+              <select id="teacherSelect" class="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-700 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition appearance-none cursor-pointer">
+                <option value="">▼ その他の先生から選択...</option>
+                <!-- Rendered via JS -->
+              </select>
+              <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
+                <i data-lucide="chevron-down" class="w-4 h-4"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <hr class="border-slate-100">
+
+        <!-- STEP 2: 公用車の選択 -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-bold text-slate-800 flex items-center gap-1.5">
+              <span class="w-5 h-5 rounded-full bg-sky-600 text-white text-xs flex items-center justify-center font-bold">2</span>
+              使用公用車を選択 <span class="text-rose-500 font-bold">*</span>
+            </label>
+            <div class="flex items-center gap-1.5">
+              <span id="vehicleQrBadge" class="hidden text-xs font-semibold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300">
+                QR連動中
+              </span>
+              <button type="button" id="btnOpenVehicleQrModal" class="inline-flex items-center gap-1 text-xs font-bold text-sky-600 hover:text-sky-800 hover:bg-sky-50 px-2 py-1 rounded-lg transition cursor-pointer" title="全公用車の個別URLと車載用QRコードを発行・印刷">
+                <i data-lucide="qr-code" class="w-3.5 h-3.5"></i>
+                <span>個別QR・URL発行</span>
+              </button>
+            </div>
+          </div>
+          <div class="relative">
+            <select id="vehicleSelect" required class="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-700 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition appearance-none cursor-pointer font-medium">
+              <option value="">▼ 公用車を選択してください...</option>
+              <!-- Rendered via JS -->
+            </select>
+            <div class="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
+              <i data-lucide="car" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+          <!-- Quick hint for currently selected vehicle's individual QR & URL -->
+          <div id="selectedVehicleQrHint" class="hidden mt-2 p-2.5 rounded-xl bg-sky-50/70 border border-sky-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2 truncate text-slate-700">
+              <span class="px-2 py-0.5 rounded-md bg-sky-200/80 font-bold text-[10px] text-sky-900 shrink-0">個別URL</span>
+              <span class="truncate font-mono text-[11px] text-slate-600" id="selectedVehicleUrlDisplay"></span>
+            </div>
+            <div class="flex items-center gap-1.5 shrink-0">
+              <button type="button" id="btnCopySelectedVehicleUrl" class="px-2.5 py-1 rounded-lg bg-white border border-slate-300 hover:bg-slate-100 text-[11px] font-bold text-slate-700 flex items-center gap-1 transition cursor-pointer shadow-2xs">
+                <i data-lucide="copy" class="w-3 h-3 text-slate-500"></i> <span id="copyUrlBtnText">URLコピー</span>
+              </button>
+              <button type="button" id="btnShowSelectedVehicleQr" class="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-[11px] font-bold text-white flex items-center gap-1 transition cursor-pointer shadow-2xs">
+                <i data-lucide="qr-code" class="w-3 h-3"></i> <span>QR表示</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <hr class="border-slate-100">
+
+        <!-- STEP 3: チェッカー撮影 & Gemini AI 自動解析 -->
+        <div>
+          <label class="text-sm font-bold text-slate-800 flex items-center justify-between mb-2">
+            <span class="flex items-center gap-1.5">
+              <span class="w-5 h-5 rounded-full bg-sky-600 text-white text-xs flex items-center justify-center font-bold">3</span>
+              アルコールチェッカー液晶画面の撮影 <span class="text-rose-500 font-bold">*</span>
+            </span>
+            <span class="text-xs text-slate-400">端末自動圧縮 (30〜80KB)</span>
+          </label>
+
+          <!-- Hidden Native File/Camera Input (accept="image/*" capture="environment") -->
+          <input type="file" id="cameraInput" accept="image/*" capture="environment" class="hidden">
+
+          <!-- Trigger / Camera Upload Card -->
+          <div id="cameraTriggerBox" class="border-2 border-dashed border-sky-300 hover:border-sky-500 bg-sky-50/50 hover:bg-sky-50/80 rounded-2xl p-5 text-center transition group">
+            <div onclick="document.getElementById('cameraInput').click()" class="cursor-pointer">
+              <div class="w-14 h-14 mx-auto rounded-2xl bg-sky-100 text-sky-600 group-hover:scale-105 flex items-center justify-center transition shadow-xs">
+                <i data-lucide="camera" class="w-7 h-7"></i>
+              </div>
+              <div class="mt-3">
+                <span class="text-sm font-bold text-sky-900 group-hover:text-sky-700">カメラを起動して撮影する</span>
+                <p class="text-xs text-slate-500 mt-1">検知器の液晶画面全体（測定数値）が鮮明に写るように撮影してください（PCはドラッグ＆ドロップ可）</p>
+              </div>
+            </div>
+            
+            <!-- Quick Test Simulation Helpers for School Demos -->
+            <div class="mt-3 pt-3 border-t border-sky-200/60 flex flex-wrap items-center justify-center gap-2">
+              <span class="text-[11px] text-slate-400 font-medium">動作検証用テスト:</span>
+              <button type="button" id="btnSimulateSafe" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 transition cursor-pointer flex items-center gap-1">
+                <i data-lucide="check" class="w-3 h-3 text-emerald-600"></i> 0.00mg/L (正常)
+              </button>
+              <button type="button" id="btnSimulateWarning" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-100 hover:bg-rose-200 text-rose-800 transition cursor-pointer flex items-center gap-1">
+                <i data-lucide="alert-triangle" class="w-3 h-3 text-rose-600"></i> 0.15mg/L (警告)
+              </button>
+            </div>
+          </div>
+
+          <!-- Photo Preview & AI Analysis Card (Initially Hidden) -->
+          <div id="previewContainer" class="hidden mt-4 space-y-3">
+            <div class="relative rounded-2xl overflow-hidden border border-slate-300 bg-slate-900 shadow-md">
+              <img id="photoPreviewImg" src="" alt="チェッカー撮影画像プレビュー" class="w-full max-h-72 object-contain bg-black/60">
+              
+              <!-- Retake Button overlay -->
+              <button type="button" onclick="document.getElementById('cameraInput').click()" class="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-black/70 hover:bg-black/90 text-white text-xs font-medium flex items-center gap-1.5 backdrop-blur-xs transition">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> 再撮影
+              </button>
+
+              <!-- Size & Time Stamp badge -->
+              <div id="photoMetaBadge" class="absolute bottom-2 left-2 px-2.5 py-1 rounded-md bg-black/70 text-slate-200 text-xs font-mono font-medium backdrop-blur-xs">
+                日時刻印済
+              </div>
+            </div>
+
+            <!-- AI OCR Status Box -->
+            <div id="aiStatusBox" class="p-4 rounded-2xl border transition-all duration-300">
+              <!-- Rendered dynamically (Analyzing spinner / Safe Green / Warning Red) -->
+            </div>
+          </div>
+        </div>
+
+        <hr class="border-slate-100">
+
+        <!-- STEP 4: 運行目的・用件の選択 -->
+        <div>
+          <label class="text-sm font-bold text-slate-800 flex items-center gap-1.5 mb-2.5">
+            <span class="w-5 h-5 rounded-full bg-sky-600 text-white text-xs flex items-center justify-center font-bold">4</span>
+            運行目的・用件を選択 <span class="text-rose-500 font-bold">*</span>
+          </label>
+          
+          <div id="purposesContainer" class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            <!-- Rendered via JS -->
+          </div>
+
+          <!-- Memo Input (Optional) -->
+          <div class="mt-3">
+            <label class="block text-xs font-medium text-slate-500 mb-1">行き先・詳細メモ（任意）</label>
+            <input type="text" id="memoInput" placeholder="例: 市民体育館、教育委員会、文化センター" class="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-700 focus:ring-2 focus:ring-sky-500 focus:border-sky-500 outline-none transition">
+          </div>
+        </div>
+
+        <!-- STEP 5: 送信ボタン -->
+        <div class="pt-2">
+          <button type="submit" id="btnSubmitInspection" class="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-700 hover:to-indigo-700 text-white text-base sm:text-lg font-bold shadow-lg shadow-sky-600/25 active:scale-[0.98] transition flex items-center justify-center gap-2 cursor-pointer">
+            <i data-lucide="send" class="w-5 h-5"></i>
+            <span>点呼記録を送信する</span>
+          </button>
+          <p class="text-center text-xs text-slate-400 mt-2.5">
+            ※送信された記録は安全運転管理者の台帳へリアルタイムに記録されます。
+          </p>
+        </div>
+
+      </form>
+    </div>
+
+
+    <!-- ================= VIEW B: 安全運転管理者ダッシュボード ================= -->
+    <div id="viewAdmin" class="hidden space-y-6">
+
+      <!-- Urgent Alcohol Warning Banner (Real-time detection) -->
+      <div id="urgentAlertBanner" class="hidden p-4 rounded-2xl bg-rose-50 border-2 border-rose-500 text-rose-950 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md alert-glow">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+            <i data-lucide="alert-octagon" class="w-6 h-6 animate-pulse"></i>
+          </div>
+          <div>
+            <div class="text-sm font-extrabold flex items-center gap-2 text-rose-900">
+              <span>【緊急安全警告】酒気帯び疑い・基準値超えの点呼記録が検知されました</span>
+              <span id="urgentAlertCountBadge" class="px-2 py-0.5 rounded-full bg-rose-600 text-white text-xs font-mono font-bold">0件</span>
+            </div>
+            <p class="text-xs text-rose-800 mt-0.5">公用車の運転は絶対に行わせないでください。直ちに運転者および運行状況を確認してください。</p>
+          </div>
+        </div>
+        <button type="button" id="btnFilterUrgentWarnings" class="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold shrink-0 transition flex items-center justify-center gap-1.5 cursor-pointer">
+          <i data-lucide="search" class="w-3.5 h-3.5"></i> 該当警告を確認
+        </button>
+      </div>
+
+      <!-- Admin Top Nav Bar -->
+      <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xs">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-1 rounded-md bg-slate-900 text-white text-xs font-bold uppercase tracking-wider">管理者ポータル</span>
+            <span id="adminSessionInfo" class="text-xs text-slate-500 font-medium">ログイン中: 管理者 (admin)</span>
+          </div>
+          <h2 class="text-lg sm:text-xl font-extrabold text-slate-900 mt-1">公用車点呼台帳 & 安全運転管理</h2>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <!-- Batch Admin Sign-off Button -->
+          <button id="btnBatchConfirm" title="未確認の全記録に一括で確認印を押印" class="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 transition cursor-pointer">
+            <i data-lucide="check-check" class="w-4 h-4 text-amber-600"></i>
+            <span>未確認を一括検認</span>
+          </button>
+
+          <!-- Official Printable Roll-call Ledger Button -->
+          <button id="btnPrintLedger" title="道路交通法準拠の点呼確認記録簿を印刷・帳票表示" class="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-300 transition cursor-pointer">
+            <i data-lucide="printer" class="w-4 h-4 text-indigo-600"></i>
+            <span>点呼記録簿 帳票印刷</span>
+          </button>
+
+          <!-- CSV Export Button -->
+          <button id="btnExportCsv" class="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition cursor-pointer">
+            <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600"></i>
+            <span>CSV出力</span>
+          </button>
+
+          <!-- Master Settings Switcher -->
+          <button id="btnToggleMasterPanel" class="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition cursor-pointer">
+            <i data-lucide="settings" class="w-4 h-4 text-slate-600"></i>
+            <span id="masterToggleText">マスタ管理</span>
+          </button>
+
+          <!-- Admin Logout -->
+          <button id="btnAdminLogout" class="inline-flex items-center justify-center gap-1 px-3 py-2 text-xs sm:text-sm font-semibold rounded-xl text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition cursor-pointer">
+            <i data-lucide="log-out" class="w-4 h-4"></i>
+            <span>ログアウト</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- MASTER MANAGEMENT PANEL (Collapsible) -->
+      <div id="masterPanel" class="hidden bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-6">
+        <div class="flex items-center justify-between border-b border-slate-200 pb-4">
+          <div>
+            <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+              <i data-lucide="database" class="w-5 h-5 text-indigo-600"></i>
+              システムマスタ & 設定管理
+            </h3>
+            <p class="text-xs text-slate-500 mt-0.5">公用車・先生名簿・運行目的の登録、QRコード発行、Gemini APIキー設定</p>
+          </div>
+          <button id="btnCloseMasterPanel" class="text-slate-400 hover:text-slate-600 p-1">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <!-- Master Tabs -->
+        <div class="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
+          <button class="master-tab-btn active px-3.5 py-1.5 text-xs sm:text-sm font-bold rounded-lg bg-sky-600 text-white transition" data-target="tabVehicles">
+            🚗 公用車マスタ & QR印刷
+          </button>
+          <button class="master-tab-btn px-3.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" data-target="tabTeachers">
+            👨‍🏫 教職員名簿 (★頻出切替)
+          </button>
+          <button class="master-tab-btn px-3.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" data-target="tabPurposes">
+            📋 運行目的マスタ
+          </button>
+          <button class="master-tab-btn px-3.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition" data-target="tabSettings">
+            🔑 APIキー・管理者設定
+          </button>
+        </div>
+
+        <!-- TAB CONTENT: 公用車マスタ -->
+        <div id="tabVehicles" class="master-tab-content space-y-4">
+          <div class="flex items-center justify-between">
+            <h4 class="text-sm font-bold text-slate-800">登録済み公用車一覧</h4>
+            <button id="btnAddVehicleBtn" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-700 text-white flex items-center gap-1 transition">
+              <i data-lucide="plus" class="w-4 h-4"></i> 新規車両登録
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs sm:text-sm text-left border border-slate-200 rounded-xl overflow-hidden">
+              <thead class="bg-slate-50 text-slate-600 uppercase text-xs font-bold border-b border-slate-200">
+                <tr>
+                  <th class="px-4 py-3">車両呼称</th>
+                  <th class="px-4 py-3">車種</th>
+                  <th class="px-4 py-3">登録ナンバー</th>
+                  <th class="px-4 py-3 text-center">車載・キー用QR</th>
+                  <th class="px-4 py-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="vehicleMasterTableBody" class="divide-y divide-slate-200">
+                <!-- Rendered via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT: 教職員名簿 -->
+        <div id="tabTeachers" class="master-tab-content hidden space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-sm font-bold text-slate-800">教職員名簿一覧</h4>
+              <p class="text-xs text-slate-500">★マークをつけると点呼画面上部にクイック選択ボタンとして配置されます</p>
+            </div>
+            <button id="btnAddTeacherBtn" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-700 text-white flex items-center gap-1 transition">
+              <i data-lucide="user-plus" class="w-4 h-4"></i> 先生を追加
+            </button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs sm:text-sm text-left border border-slate-200 rounded-xl overflow-hidden">
+              <thead class="bg-slate-50 text-slate-600 uppercase text-xs font-bold border-b border-slate-200">
+                <tr>
+                  <th class="px-4 py-3">氏名</th>
+                  <th class="px-4 py-3 text-center">クイック表示 (★頻出)</th>
+                  <th class="px-4 py-3 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody id="teacherMasterTableBody" class="divide-y divide-slate-200">
+                <!-- Rendered via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT: 運行目的マスタ -->
+        <div id="tabPurposes" class="master-tab-content hidden space-y-4">
+          <div class="flex items-center justify-between">
+            <h4 class="text-sm font-bold text-slate-800">運行目的・用件一覧</h4>
+            <button id="btnAddPurposeBtn" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-700 text-white flex items-center gap-1 transition">
+              <i data-lucide="plus" class="w-4 h-4"></i> 用件を追加
+            </button>
+          </div>
+          <div id="purposeMasterList" class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <!-- Rendered via JS -->
+          </div>
+        </div>
+
+        <!-- TAB CONTENT: 設定・APIキー・管理者アカウント -->
+        <div id="tabSettings" class="master-tab-content hidden space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <!-- Gemini API Key Settings -->
+            <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+              <div class="flex items-center gap-2">
+                <i data-lucide="bot" class="w-5 h-5 text-indigo-600"></i>
+                <h4 class="text-sm font-bold text-slate-900">Google Gemini API 設定</h4>
+              </div>
+              <p class="text-xs text-slate-600 leading-relaxed">
+                アルコール検知器の液晶数値をGemini 2.5 Flashで自動OCR解析します。Google AI Studioで取得したAPIキーを入力してください。
+              </p>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Gemini API Key</label>
+                <div class="flex gap-2">
+                  <input type="password" id="geminiApiKeyInput" placeholder="AIzaSy..." class="flex-1 text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500 font-mono">
+                  <button id="btnSaveGeminiKey" class="px-3 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition">保存</button>
+                </div>
+                <div class="flex items-center justify-between mt-2">
+                  <span id="geminiKeyStatus" class="text-xs font-medium text-slate-500">確認中...</span>
+                  <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" class="text-xs text-sky-600 hover:underline flex items-center gap-1">
+                    APIキーを取得 <i data-lucide="external-link" class="w-3 h-3"></i>
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            <!-- Admin Credentials Setting -->
+            <div class="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+              <div class="flex items-center gap-2">
+                <i data-lucide="key" class="w-5 h-5 text-amber-600"></i>
+                <h4 class="text-sm font-bold text-slate-900">管理者ID・パスワード変更</h4>
+              </div>
+              <p class="text-xs text-slate-600">
+                安全運転管理者画面のログイン認証情報を変更します（Firestore同期・全端末共通）。
+              </p>
+              <div class="space-y-2">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-0.5">管理者ID</label>
+                  <input type="text" id="adminIdChangeInput" class="w-full text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500 font-medium">
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-0.5">新しいパスワード</label>
+                  <input type="password" id="adminPwChangeInput" placeholder="6文字以上を推奨" class="w-full text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500 font-medium">
+                </div>
+                <button id="btnSaveAdminCreds" class="w-full py-2 text-xs font-bold rounded-xl bg-slate-900 hover:bg-slate-800 text-white transition mt-1">
+                  認証情報を更新・保存
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      <!-- SUMMARY CARDS (4 METRICS) -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        
+        <!-- Card 1: Today Inspections -->
+        <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs">
+          <div class="flex items-center justify-between text-slate-500 mb-2">
+            <span class="text-xs font-bold">本日の点呼件数</span>
+            <div class="w-8 h-8 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center">
+              <i data-lucide="calendar" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="metricTodayTotal" class="text-2xl sm:text-3xl font-extrabold text-slate-900 font-mono-num">0</span>
+            <span class="text-xs text-slate-500 font-medium">件</span>
+          </div>
+          <span class="text-xs text-slate-400 mt-1 block">本日実施された全点呼</span>
+        </div>
+
+        <!-- Card 2: Unconfirmed -->
+        <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs">
+          <div class="flex items-center justify-between text-slate-500 mb-2">
+            <span class="text-xs font-bold">管理者未確認</span>
+            <div class="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <i data-lucide="clock" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="metricPending" class="text-2xl sm:text-3xl font-extrabold text-amber-600 font-mono-num">0</span>
+            <span class="text-xs text-slate-500 font-medium">件</span>
+          </div>
+          <span class="text-xs text-amber-600/80 font-medium mt-1 block">要確認印の記録</span>
+        </div>
+
+        <!-- Card 3: Safe Passed -->
+        <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs">
+          <div class="flex items-center justify-between text-slate-500 mb-2">
+            <span class="text-xs font-bold">正常判定 (0.00mg)</span>
+            <div class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <i data-lucide="check-circle" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="metricSafe" class="text-2xl sm:text-3xl font-extrabold text-emerald-600 font-mono-num">0</span>
+            <span class="text-xs text-slate-500 font-medium">件</span>
+          </div>
+          <span class="text-xs text-emerald-600/80 font-medium mt-1 block">アルコール未検出</span>
+        </div>
+
+        <!-- Card 4: Warnings Detected -->
+        <div id="metricWarningCard" class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs transition-all">
+          <div class="flex items-center justify-between text-slate-500 mb-2">
+            <span class="text-xs font-bold">酒気帯び警告</span>
+            <div class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+              <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+            </div>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="metricWarning" class="text-2xl sm:text-3xl font-extrabold text-rose-600 font-mono-num">0</span>
+            <span class="text-xs text-slate-500 font-medium">件</span>
+          </div>
+          <span id="metricWarningText" class="text-xs text-slate-400 mt-1 block">検知された警告</span>
+        </div>
+
+      </div>
+
+      <!-- FLEET USAGE MONITOR (公用車稼働モニタ) -->
+      <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+            <i data-lucide="car-front" class="w-4 h-4 text-sky-600"></i>
+            公用車 稼働モニタ・本日の運行状況
+          </h3>
+          <span class="text-[11px] text-slate-400">リアルタイム自動集計</span>
+        </div>
+        <div id="fleetStatusContainer" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <!-- Rendered via JS -->
+        </div>
+      </div>
+
+      <!-- INSPECTION LOGS LIST & FILTER TOOLBAR -->
+      <div class="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 shadow-sm space-y-5">
+        
+        <!-- Filter Toolbar -->
+        <div class="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          
+          <!-- Search box -->
+          <div class="relative flex-1 max-w-md">
+            <input type="text" id="logSearchInput" placeholder="先生名、公用車、用件、メモを検索..." class="w-full text-xs sm:text-sm bg-slate-50 border border-slate-300 rounded-xl pl-9 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-sky-500 transition">
+            <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+              <i data-lucide="search" class="w-4 h-4"></i>
+            </div>
+          </div>
+
+          <!-- Status Filters & Date Scope -->
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-medium">
+              <button class="log-filter-tab px-3 py-1.5 rounded-lg active bg-white text-slate-900 shadow-xs font-bold" data-status="all">全て</button>
+              <button class="log-filter-tab px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900" data-status="pending">⏳ 未確認</button>
+              <button class="log-filter-tab px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900" data-status="confirmed">✅ 確認済</button>
+              <button class="log-filter-tab px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900" data-status="warning">🚨 警告</button>
+            </div>
+
+            <select id="logDateFilter" class="text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-700 outline-none cursor-pointer">
+              <option value="today">本日のみ</option>
+              <option value="week">直近7日間</option>
+              <option value="all" selected>全期間</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Table Container -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs sm:text-sm border-collapse min-w-[760px]">
+            <thead>
+              <tr class="border-b border-slate-200 text-slate-500 uppercase text-[11px] font-bold tracking-wider bg-slate-50/50">
+                <th class="py-3 px-3">写真</th>
+                <th class="py-3 px-3">点呼日時</th>
+                <th class="py-3 px-3">運転者 (教員)</th>
+                <th class="py-3 px-3">公用車</th>
+                <th class="py-3 px-3">測定値 (mg/L)</th>
+                <th class="py-3 px-3">運行用件 / メモ</th>
+                <th class="py-3 px-3 text-center">管理者確認印</th>
+              </tr>
+            </thead>
+            <tbody id="inspectionLogsTableBody" class="divide-y divide-slate-100">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+
+          <!-- Empty State message -->
+          <div id="emptyLogsMsg" class="hidden py-12 text-center text-slate-400">
+            <i data-lucide="inbox" class="w-10 h-10 mx-auto text-slate-300 mb-2"></i>
+            <p class="text-sm font-medium">該当する点呼記録はありません</p>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ================= FOOTER ================= -->
+  <footer class="bg-white border-t border-slate-200 py-4 px-4 text-center text-xs text-slate-500">
+    <p>学校向け公用車運行管理・アルコール検知システム | 道路交通法施行規則第9条の10準拠</p>
+  </footer>
+
+
+  <!-- ================= MODALS & DIALOGS (Strictly NO window.alert/confirm) ================= -->
+
+  <!-- 1. CUSTOM ALERT / CONFIRM MODAL -->
+  <div id="customModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs transition-opacity">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl transform transition-transform border border-slate-200 text-center">
+      <div id="modalIconContainer" class="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-4">
+        <!-- Icon injected by JS -->
+      </div>
+      <h3 id="modalTitle" class="text-lg font-bold text-slate-900"></h3>
+      <p id="modalMessage" class="text-sm text-slate-600 mt-2 leading-relaxed whitespace-pre-line"></p>
+      
+      <div id="modalBtnContainer" class="mt-6 flex gap-3">
+        <!-- Buttons injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. ADMIN LOGIN MODAL -->
+  <div id="adminLoginModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
+      <div class="text-center mb-5">
+        <div class="w-12 h-12 mx-auto rounded-2xl bg-slate-900 text-white flex items-center justify-center shadow-md">
+          <i data-lucide="shield-alert" class="w-6 h-6"></i>
+        </div>
+        <h3 class="text-lg font-bold text-slate-900 mt-3">安全運転管理者 認証</h3>
+        <p class="text-xs text-slate-500 mt-0.5">IDとパスワードを入力してください</p>
+      </div>
+
+      <form id="adminLoginForm" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">管理者 ID</label>
+          <input type="text" id="adminLoginId" required placeholder="初期値: admin" class="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1">パスワード</label>
+          <input type="password" id="adminLoginPw" required placeholder="初期値: admin1234" class="w-full text-sm bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 outline-none focus:ring-2 focus:ring-sky-500">
+        </div>
+        
+        <div id="adminLoginError" class="hidden text-xs text-rose-600 font-semibold bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+          IDまたはパスワードが正しくありません。
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button type="button" id="btnCancelAdminLogin" class="flex-1 py-2.5 text-sm font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+            キャンセル
+          </button>
+          <button type="submit" class="flex-1 py-2.5 text-sm font-bold rounded-xl bg-slate-900 hover:bg-slate-800 text-white shadow-md transition">
+            ログイン
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 3. PHOTO LIGHTBOX / INSPECTION DETAIL MODAL -->
+  <div id="photoLightboxModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md">
+    <div class="relative bg-white rounded-3xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+      <div class="p-4 border-b border-slate-200 flex items-center justify-between">
+        <div>
+          <h4 id="lightboxTitle" class="text-sm font-bold text-slate-900">チェッカー撮影原本</h4>
+          <p id="lightboxSubtitle" class="text-xs text-slate-500"></p>
+        </div>
+        <button id="btnCloseLightbox" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="p-4 bg-slate-900 flex-1 overflow-auto flex items-center justify-center">
+        <img id="lightboxImg" src="" alt="拡大撮影画像" class="max-w-full max-h-[60vh] object-contain rounded-xl shadow-lg">
+      </div>
+      <div id="lightboxDetails" class="p-4 bg-slate-50 border-t border-slate-200 text-xs space-y-1">
+        <!-- Injected details -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 4. VEHICLE QR CODE GENERATION & PRINT MODAL -->
+  <div id="qrPrintModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/70 backdrop-blur-xs">
+    <div class="bg-white rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 max-h-[92vh] flex flex-col">
+      <div class="flex items-center justify-between border-b border-slate-200 pb-3 mb-4 no-print">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+            <i data-lucide="qr-code" class="w-5 h-5 text-emerald-600"></i>
+          </div>
+          <div>
+            <h4 class="text-base font-extrabold text-slate-900">公用車 個別URL & 車載用QRコード発行</h4>
+            <p class="text-xs text-slate-500">スマホで読み取ると該当公用車が自動選択されて起動します</p>
+          </div>
+        </div>
+        <button id="btnCloseQrModal" class="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Vehicle Mode Switcher Dropdown (No-Print) -->
+      <div class="mb-4 no-print space-y-3">
+        <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2">
+          <label class="text-xs font-bold text-slate-700">対象公用車を選択:</label>
+          <select id="qrVehicleSelectDropdown" class="text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-bold outline-none cursor-pointer focus:ring-2 focus:ring-sky-500">
+            <!-- Populated via JS -->
+          </select>
+        </div>
+
+        <!-- Individual URL Display Box (Single vehicle mode) -->
+        <div id="qrSingleUrlContainer" class="p-3 bg-slate-50 rounded-2xl border border-slate-200 space-y-1.5">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-bold text-slate-700 flex items-center gap-1">
+              <i data-lucide="link" class="w-3.5 h-3.5 text-sky-600"></i>
+              個別ダイレクトURL（公用車自動選択リンク）:
+            </span>
+            <span id="qrUrlCopyFeedback" class="text-[11px] font-bold text-emerald-600 hidden">コピー完了！</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <input type="text" id="qrModalUrlInput" readonly class="flex-1 text-xs font-mono bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-700 outline-none select-all">
+            <button type="button" id="btnCopyQrModalUrl" class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 active:scale-95 text-white text-xs font-bold transition cursor-pointer flex items-center gap-1 shrink-0">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+              <span>URLコピー</span>
+            </button>
+            <a id="btnTestOpenQrUrl" href="#" target="_blank" rel="noopener noreferrer" class="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1 shrink-0" title="このURLを別タブで開く">
+              <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+              <span>開く</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Printable Area Box (Scrollable in modal) -->
+      <div class="flex-1 overflow-auto p-1">
+        <div id="printArea" class="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-5 text-center">
+          <!-- Dynamic Content rendered by JS (Single Card or All Sticker Cards Grid) -->
+          <div id="qrPrintAreaInner"></div>
+        </div>
+      </div>
+
+      <!-- Modal Footer actions (No-Print) -->
+      <div class="flex gap-2 mt-4 pt-3 border-t border-slate-200 no-print">
+        <button id="btnTriggerPrint" class="flex-1 py-2.5 text-xs sm:text-sm font-bold rounded-xl bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md">
+          <i data-lucide="printer" class="w-4 h-4"></i> 印刷する (A4用紙・キータグ・シール)
+        </button>
+        <button id="btnCloseQrModalBottom" class="px-4 py-2.5 text-xs sm:text-sm font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer">
+          閉じる
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5. MASTER MODAL FOR ADDING/EDITING ITEMS (Vehicles, Teachers, Purposes) -->
+  <div id="masterInputModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+    <div class="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200">
+      <h3 id="masterInputModalTitle" class="text-base font-bold text-slate-900 mb-4"></h3>
+      
+      <form id="masterInputForm" class="space-y-4">
+        <div id="masterInputFieldsContainer" class="space-y-3">
+          <!-- Dynamic inputs injected by JS -->
+        </div>
+        <div class="flex gap-2 pt-2">
+          <button type="button" id="btnCancelMasterInput" class="flex-1 py-2.5 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+            キャンセル
+          </button>
+          <button type="submit" class="flex-1 py-2.5 text-xs font-bold rounded-xl bg-sky-600 hover:bg-sky-700 text-white transition">
+            保存する
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 6. OFFICIAL PRINTABLE ROLL-CALL LEDGER MODAL (点呼記録簿 帳票印刷) -->
+  <div id="ledgerPrintModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-xs">
+    <div class="bg-white rounded-3xl max-w-5xl w-full max-h-[95vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+      <!-- Modal Header (Non-printing) -->
+      <div class="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50 no-print">
+        <div class="flex items-center gap-2.5">
+          <div class="w-9 h-9 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+            <i data-lucide="file-check-2" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h4 class="text-sm sm:text-base font-extrabold text-slate-900">公用車点呼確認記録簿（法定帳票印刷プレビュー）</h4>
+            <p class="text-xs text-slate-500">道路交通法施行規則第9条の10第6号準拠 / A4横・縦印刷対応</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <!-- Ledger date scope selector -->
+          <select id="ledgerScopeSelect" class="text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 outline-none font-semibold text-slate-700 cursor-pointer">
+            <option value="today" selected>本日分のみ印刷</option>
+            <option value="week">直近7日間分</option>
+            <option value="month">直近30日間分</option>
+            <option value="all">全記録印刷</option>
+          </select>
+
+          <button type="button" id="btnTriggerLedgerPrint" class="px-3.5 py-2 text-xs font-bold rounded-xl bg-slate-900 hover:bg-slate-800 text-white flex items-center gap-1.5 transition cursor-pointer">
+            <i data-lucide="printer" class="w-4 h-4"></i> 帳票印刷 (A4)
+          </button>
+          <button type="button" id="btnCloseLedgerModal" class="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition cursor-pointer">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Printable Sheet Container -->
+      <div class="flex-1 overflow-auto p-4 sm:p-8 bg-slate-100/60">
+        <div id="ledgerPrintArea" class="bg-white p-6 sm:p-8 border border-slate-300 rounded-2xl shadow-sm text-slate-900 mx-auto">
+          <!-- Title & Approval Seal Boxes -->
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b-2 border-slate-900 pb-4 mb-4">
+            <div>
+              <div class="text-[11px] font-bold text-slate-500 tracking-wider">【道路交通法施行規則第9条の10準拠】</div>
+              <h2 class="text-xl sm:text-2xl font-black tracking-tight text-slate-950 mt-0.5">公用車アルコール点呼確認記録簿</h2>
+              <div class="flex items-center gap-4 text-xs font-medium text-slate-600 mt-2">
+                <span>管掌: <strong class="text-slate-900 font-bold">学校安全運転管理協議会</strong></span>
+                <span>出力日時: <span id="ledgerPrintedAt" class="font-mono"></span></span>
+              </div>
+            </div>
+
+            <!-- Japanese Administrative Hanko boxes -->
+            <div class="flex border border-slate-900 rounded-lg overflow-hidden text-center text-[11px]">
+              <div class="w-16 border-r border-slate-900">
+                <div class="bg-slate-100 py-1 font-bold border-b border-slate-900">学校長</div>
+                <div class="h-12 flex items-center justify-center text-slate-300 font-bold text-xs">印</div>
+              </div>
+              <div class="w-16 border-r border-slate-900">
+                <div class="bg-slate-100 py-1 font-bold border-b border-slate-900">副校長</div>
+                <div class="h-12 flex items-center justify-center text-slate-300 font-bold text-xs">印</div>
+              </div>
+              <div class="w-20">
+                <div class="bg-slate-100 py-1 font-bold border-b border-slate-900">安全運転管理者</div>
+                <div class="h-12 flex items-center justify-center text-rose-600 font-bold text-xs">
+                  <span class="border border-rose-600 rounded-full px-1 py-0.5 text-[9px] font-bold">検認済</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Ledger Table -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs text-left border-collapse border border-slate-900">
+              <thead class="bg-slate-100 text-slate-900 font-bold uppercase text-[11px]">
+                <tr class="border-b border-slate-900">
+                  <th class="border-r border-slate-900 p-2 text-center w-8">No</th>
+                  <th class="border-r border-slate-900 p-2 text-center w-28">点呼日時</th>
+                  <th class="border-r border-slate-900 p-2 w-28">運転教員名</th>
+                  <th class="border-r border-slate-900 p-2 w-32">使用公用車</th>
+                  <th class="border-r border-slate-900 p-2 text-center w-14">検知器</th>
+                  <th class="border-r border-slate-900 p-2 text-center w-24">測定値(mg/L)</th>
+                  <th class="border-r border-slate-900 p-2 text-center w-16">判定</th>
+                  <th class="border-r border-slate-900 p-2">運行目的・行き先</th>
+                  <th class="p-2 text-center w-20">検認印</th>
+                </tr>
+              </thead>
+              <tbody id="ledgerTableBody" class="divide-y divide-slate-300">
+                <!-- Rendered dynamically -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Footer legal note -->
+          <div class="mt-4 pt-3 border-t border-slate-300 flex items-center justify-between text-[11px] text-slate-500">
+            <p>※本台帳は道路交通法施行規則に基づき、記録日より1年間の保存が義務付けられています。</p>
+            <p>公用車安全点呼管理システム</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ================= APPLICATION LOGIC (FIREBASE V11 + GEMINI AI + STORE) ================= -->
+  <script type="module">
+    // Import Firebase SDK v11 (ES Modules)
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-app.js";
+    import { 
+      getFirestore, 
+      collection, 
+      doc, 
+      getDocs, 
+      getDoc, 
+      setDoc, 
+      addDoc, 
+      updateDoc, 
+      deleteDoc, 
+      onSnapshot 
+    } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-firestore.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.4.0/firebase-auth.js";
+
+    // Application ID and collection path structure required: /artifacts/{appId}/public/data/{collection_name}
+    const APP_ID = "eb100f21-abdd-4986-9f98-e659fbcc2650";
+    const BASE_PATH = `/artifacts/${APP_ID}/public/data`;
+
+    // Local Storage Keys
+    const LS_PREFIX = `school_alco_v2_${APP_ID}_`;
+    const LS_TEACHERS = LS_PREFIX + "teachers";
+    const LS_VEHICLES = LS_PREFIX + "vehicles";
+    const LS_PURPOSES = LS_PREFIX + "purposes";
+    const LS_INSPECTIONS = LS_PREFIX + "inspections";
+    const LS_ADMIN_CREDS = LS_PREFIX + "admin_creds";
+    const LS_GEMINI_KEY = "school_alco_gemini_api_key";
+
+    // Initial Master Mock Data
+    const INITIAL_TEACHERS = [
+      { id: "t1", name: "佐藤 健一", frequent: true, createdAt: Date.now() - 500000 },
+      { id: "t2", name: "鈴木 美咲", frequent: true, createdAt: Date.now() - 400000 },
+      { id: "t3", name: "高橋 宏", frequent: true, createdAt: Date.now() - 300000 },
+      { id: "t4", name: "田中 陽子", frequent: false, createdAt: Date.now() - 200000 },
+      { id: "t5", name: "伊藤 誠", frequent: false, createdAt: Date.now() - 100000 }
+    ];
+
+    const INITIAL_VEHICLES = [
+      { id: "v1", name: "公用車1号", model: "セレナ (8人乗)", number: "品川 500 さ 12-34", active: true, createdAt: Date.now() - 500000 },
+      { id: "v2", name: "公用車2号", model: "プリウス (5人乗)", number: "品川 300 た 56-78", active: true, createdAt: Date.now() - 400000 },
+      { id: "v3", name: "公用車3号", model: "ハイエース (10人乗)", number: "品川 400 な 90-12", active: true, createdAt: Date.now() - 300000 }
+    ];
+
+    const INITIAL_PURPOSES = [
+      { id: "p1", name: "🏆 部活遠征・引率", createdAt: Date.now() - 500000 },
+      { id: "p2", name: "📚 校外授業・見学会", createdAt: Date.now() - 400000 },
+      { id: "p3", name: "💼 教育委員会・研修出張", createdAt: Date.now() - 300000 },
+      { id: "p4", name: "🏫 学校事務・資材搬送", createdAt: Date.now() - 200000 },
+      { id: "p5", name: "✏️ その他校務", createdAt: Date.now() - 100000 }
+    ];
+
+    const INITIAL_ADMIN_CREDS = {
+      id: "admin",
+      password: "admin1234",
+      updatedAt: Date.now()
+    };
+
+    // Realistic initial inspections to seed if database is completely new
+    const INITIAL_INSPECTIONS = [
+      {
+        id: "insp_demo_1",
+        teacherId: "t1",
+        teacherName: "佐藤 健一",
+        vehicleName: "公用車1号 (セレナ)",
+        alcoholValue: 0.00,
+        isSafe: true,
+        purpose: "🏆 部活遠征・引率",
+        memo: "県立総合体育館（サッカー部公式戦）",
+        timestamp: new Date(Date.now() - 3600000 * 2).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
+        timestampRaw: Date.now() - 3600000 * 2,
+        photoBase64: createDemoCheckerCanvas(0.00, "0.00 mg/L PASS", "公用車1号", "佐藤 健一"),
+        confirmedByAdmin: true,
+        confirmedAt: new Date(Date.now() - 3600000 * 1.8).toLocaleString("ja-JP", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+      },
+      {
+        id: "insp_demo_2",
+        teacherId: "t2",
+        teacherName: "鈴木 美咲",
+        vehicleName: "公用車2号 (プリウス)",
+        alcoholValue: 0.00,
+        isSafe: true,
+        purpose: "💼 教育委員会・研修出張",
+        memo: "市教育センター合同連絡協議会",
+        timestamp: new Date(Date.now() - 1800000).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
+        timestampRaw: Date.now() - 1800000,
+        photoBase64: createDemoCheckerCanvas(0.00, "0.00 mg/L PASS", "公用車2号", "鈴木 美咲"),
+        confirmedByAdmin: false,
+        confirmedAt: null
+      }
+    ];
+
+    // Helper: generate a crisp realistic demo alcohol checker LCD canvas image
+    function createDemoCheckerCanvas(value, textStatus, vehicleName, teacherName) {
+      const c = document.createElement("canvas");
+      c.width = 480;
+      c.height = 320;
+      const ctx = c.getContext("2d");
+      
+      // Device frame
+      ctx.fillStyle = "#1e293b";
+      ctx.fillRect(0, 0, 480, 320);
+
+      // Checker LCD bezel
+      ctx.fillStyle = "#0f172a";
+      ctx.roundRect(40, 40, 400, 200, 16);
+      ctx.fill();
+
+      // LCD Screen glow
+      ctx.fillStyle = value === 0 ? "#ecfdf5" : "#fef2f2";
+      ctx.roundRect(50, 50, 380, 180, 12);
+      ctx.fill();
+
+      // LCD display content
+      ctx.fillStyle = value === 0 ? "#047857" : "#b91c1c";
+      ctx.font = "bold 16px 'Noto Sans JP', sans-serif";
+      ctx.fillText("ALCOHOL BREATHALYZER [BT-3000]", 70, 80);
+
+      ctx.font = "bold 64px 'JetBrains Mono', monospace";
+      ctx.fillText(`${value.toFixed(2)}`, 70, 160);
+
+      ctx.font = "bold 20px 'JetBrains Mono', monospace";
+      ctx.fillText("mg/L", 280, 155);
+
+      ctx.font = "bold 18px 'Noto Sans JP', sans-serif";
+      ctx.fillText(value === 0 ? "● PASS (アルコール未検出)" : "▲ WARNING (酒気帯び警告)", 70, 205);
+
+      // Audit Stamp Watermark on bottom
+      ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+      ctx.fillRect(0, 260, 480, 60);
+
+      ctx.fillStyle = "#f8fafc";
+      ctx.font = "12px 'Noto Sans JP', sans-serif";
+      ctx.fillText(`【公用車点呼刻印】${new Date().toLocaleString("ja-JP")}`, 16, 282);
+      ctx.fillText(`運転者: ${teacherName} | 車両: ${vehicleName}`, 16, 302);
+
+      return c.toDataURL("image/jpeg", 0.7);
+    }
+
+    // ================= STATE ENGINE & DUAL-PERSISTENCE =================
+    class AppState {
+      constructor() {
+        this.teachers = [];
+        this.vehicles = [];
+        this.purposes = [];
+        this.inspections = [];
+        this.adminCreds = INITIAL_ADMIN_CREDS;
+        this.geminiApiKey = localStorage.getItem(LS_GEMINI_KEY) || "";
+
+        this.isAdminLoggedIn = false;
+        this.currentView = "teacher"; // "teacher" or "admin"
+        this.selectedTeacher = null;
+        this.selectedVehicle = null;
+        this.selectedPurpose = null;
+        this.capturedPhotoBase64 = null;
+        this.detectedAlcoholValue = null;
+        this.isAlcoholSafe = null;
+
+        this.db = null;
+        this.isFirestoreConnected = false;
+      }
+
+      // Initialize Dual Data Store: Cloud Firestore with LocalStorage Fallback
+      async initDatabase() {
+        try {
+          // Provisioned Firebase configuration
+          const firebaseConfig = {
+            projectId: "gen-lang-client-0519842820",
+            appId: "1:1022830860980:web:118c0202de7d1cca3055e1",
+            apiKey: "AIzaSyBD-PPm34Ov9vK8zlBGndmZY1Ox7wYG3AU",
+            authDomain: "gen-lang-client-0519842820.firebaseapp.com",
+            storageBucket: "gen-lang-client-0519842820.firebasestorage.app",
+            messagingSenderId: "1022830860980"
+          };
+          const firestoreDbId = "ai-studio-eb100f21-abdd-4986-9f98-e659fbcc2650";
+          
+          const app = initializeApp(firebaseConfig);
+          this.db = getFirestore(app, firestoreDbId);
+          
+          const auth = getAuth(app);
+          try {
+            await signInAnonymously(auth);
+          } catch (authErr) {
+            console.log("Anonymous Auth note:", authErr.message);
+          }
+
+          this.isFirestoreConnected = true;
+          const badge = document.getElementById("dataModeBadge");
+          if (badge) {
+            badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>Firestoreクラウド連動中';
+            badge.classList.remove("hidden");
+          }
+
+          // Realtime onSnapshot listener for inspections collection
+          onSnapshot(collection(this.db, `${BASE_PATH}/inspections`), (snapshot) => {
+            if (!snapshot.empty) {
+              const list = [];
+              snapshot.forEach(docSnap => {
+                list.push({ ...docSnap.data(), id: docSnap.id });
+              });
+              list.sort((a, b) => (b.timestampRaw || 0) - (a.timestampRaw || 0));
+              this.inspections = list;
+              this.saveLocal(LS_INSPECTIONS, this.inspections);
+              renderSummaryMetrics();
+              renderInspectionLogs();
+            }
+          }, (err) => {
+            console.warn("Firestore snapshot listener note:", err.message);
+          });
+
+        } catch (e) {
+          console.warn("Firestore running in resilient LocalStorage persistence mode:", e);
+          this.isFirestoreConnected = false;
+        }
+
+        // Hydrate data from Storage (Firestore if active, else LocalStorage)
+        await this.loadAllCollections();
+      }
+
+      async loadAllCollections() {
+        // 1. Teachers
+        const storedTeachers = localStorage.getItem(LS_TEACHERS);
+        if (storedTeachers) {
+          this.teachers = JSON.parse(storedTeachers);
+        } else {
+          this.teachers = INITIAL_TEACHERS;
+          localStorage.setItem(LS_TEACHERS, JSON.stringify(this.teachers));
+        }
+
+        // 2. Vehicles
+        const storedVehicles = localStorage.getItem(LS_VEHICLES);
+        if (storedVehicles) {
+          this.vehicles = JSON.parse(storedVehicles);
+        } else {
+          this.vehicles = INITIAL_VEHICLES;
+          localStorage.setItem(LS_VEHICLES, JSON.stringify(this.vehicles));
+        }
+
+        // 3. Purposes
+        const storedPurposes = localStorage.getItem(LS_PURPOSES);
+        if (storedPurposes) {
+          this.purposes = JSON.parse(storedPurposes);
+        } else {
+          this.purposes = INITIAL_PURPOSES;
+          localStorage.setItem(LS_PURPOSES, JSON.stringify(this.purposes));
+        }
+
+        // 4. Inspections
+        const storedInspections = localStorage.getItem(LS_INSPECTIONS);
+        if (storedInspections) {
+          this.inspections = JSON.parse(storedInspections);
+        } else {
+          this.inspections = INITIAL_INSPECTIONS;
+          localStorage.setItem(LS_INSPECTIONS, JSON.stringify(this.inspections));
+        }
+
+        // 5. Admin Creds
+        const storedCreds = localStorage.getItem(LS_ADMIN_CREDS);
+        if (storedCreds) {
+          this.adminCreds = JSON.parse(storedCreds);
+        } else {
+          this.adminCreds = INITIAL_ADMIN_CREDS;
+          localStorage.setItem(LS_ADMIN_CREDS, JSON.stringify(this.adminCreds));
+        }
+
+        // Sync with Firestore if connected
+        if (this.isFirestoreConnected && this.db) {
+          try {
+            // Hydrate or seed teachers
+            const tSnap = await getDocs(collection(this.db, `${BASE_PATH}/teachers`));
+            if (!tSnap.empty) {
+              const cloudTeachers = [];
+              tSnap.forEach(d => cloudTeachers.push({ ...d.data(), id: d.id }));
+              this.teachers = cloudTeachers;
+              this.saveLocal(LS_TEACHERS, this.teachers);
+            } else {
+              for (const t of this.teachers) {
+                await setDoc(doc(this.db, `${BASE_PATH}/teachers`, t.id), t);
+              }
+            }
+
+            // Hydrate or seed vehicles
+            const vSnap = await getDocs(collection(this.db, `${BASE_PATH}/vehicles`));
+            if (!vSnap.empty) {
+              const cloudVehicles = [];
+              vSnap.forEach(d => cloudVehicles.push({ ...d.data(), id: d.id }));
+              this.vehicles = cloudVehicles;
+              this.saveLocal(LS_VEHICLES, this.vehicles);
+            } else {
+              for (const v of this.vehicles) {
+                await setDoc(doc(this.db, `${BASE_PATH}/vehicles`, v.id), v);
+              }
+            }
+
+            // Hydrate or seed purposes
+            const pSnap = await getDocs(collection(this.db, `${BASE_PATH}/purposes`));
+            if (!pSnap.empty) {
+              const cloudPurposes = [];
+              pSnap.forEach(d => cloudPurposes.push({ ...d.data(), id: d.id }));
+              this.purposes = cloudPurposes;
+              this.saveLocal(LS_PURPOSES, this.purposes);
+            } else {
+              for (const p of this.purposes) {
+                await setDoc(doc(this.db, `${BASE_PATH}/purposes`, p.id), p);
+              }
+            }
+
+            // Hydrate or seed inspections
+            const iSnap = await getDocs(collection(this.db, `${BASE_PATH}/inspections`));
+            if (!iSnap.empty) {
+              const cloudInspections = [];
+              iSnap.forEach(d => cloudInspections.push({ ...d.data(), id: d.id }));
+              cloudInspections.sort((a, b) => (b.timestampRaw || 0) - (a.timestampRaw || 0));
+              this.inspections = cloudInspections;
+              this.saveLocal(LS_INSPECTIONS, this.inspections);
+            } else {
+              for (const insp of this.inspections) {
+                await setDoc(doc(this.db, `${BASE_PATH}/inspections`, insp.id), insp);
+              }
+            }
+
+            // Hydrate or seed admin creds
+            const aSnap = await getDoc(doc(this.db, `${BASE_PATH}/settings/admin_creds`));
+            if (aSnap.exists()) {
+              this.adminCreds = aSnap.data();
+              this.saveLocal(LS_ADMIN_CREDS, this.adminCreds);
+            } else {
+              await setDoc(doc(this.db, `${BASE_PATH}/settings/admin_creds`), this.adminCreds);
+            }
+          } catch (syncErr) {
+            console.warn("Initial Firestore sync note:", syncErr.message);
+          }
+        }
+      }
+
+      saveLocal(key, data) {
+        localStorage.setItem(key, JSON.stringify(data));
+      }
+
+      // Inspection persistence
+      async addInspection(inspectionData) {
+        this.inspections.unshift(inspectionData);
+        this.saveLocal(LS_INSPECTIONS, this.inspections);
+
+        if (this.isFirestoreConnected && this.db) {
+          try {
+            await setDoc(doc(this.db, `${BASE_PATH}/inspections`, inspectionData.id), inspectionData);
+          } catch (e) {
+            console.warn("Firestore sync skipped:", e.message);
+          }
+        }
+      }
+
+      async confirmInspection(id) {
+        const item = this.inspections.find(x => x.id === id);
+        if (item) {
+          item.confirmedByAdmin = true;
+          item.confirmedAt = new Date().toLocaleString("ja-JP", {
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit"
+          });
+          this.saveLocal(LS_INSPECTIONS, this.inspections);
+
+          if (this.isFirestoreConnected && this.db) {
+            try {
+              await setDoc(doc(this.db, `${BASE_PATH}/inspections`, item.id), item, { merge: true });
+            } catch (e) {
+              console.warn("Firestore confirm update note:", e.message);
+            }
+          }
+        }
+      }
+
+      // Master items manipulation
+      async saveTeachers() {
+        this.saveLocal(LS_TEACHERS, this.teachers);
+        if (this.isFirestoreConnected && this.db) {
+          try {
+            for (const t of this.teachers) {
+              await setDoc(doc(this.db, `${BASE_PATH}/teachers`, t.id), t);
+            }
+          } catch (e) { console.warn("Teachers sync:", e); }
+        }
+      }
+      async deleteTeacher(id) {
+        this.teachers = this.teachers.filter(x => x.id !== id);
+        this.saveLocal(LS_TEACHERS, this.teachers);
+        if (this.isFirestoreConnected && this.db) {
+          try {
+            await deleteDoc(doc(this.db, `${BASE_PATH}/teachers`, id));
+          } catch (e) { console.warn("Delete teacher sync:", e); }
+        }
+      }
+
+      async saveVehicles() {
+        this.saveLocal(LS_VEHICLES, this.vehicles);
+        if (this.isFirestoreConnected && this.db) {
+          try {
+            for (const v of this.vehicles) {
+              await setDoc(doc(this.db, `${BASE_PATH}/vehicles`, v.id), v);
+            }
+          } catch (e) { console.warn("Vehicles sync:", e); }
+        }
+      }
+      async deleteVehicle(id) {
+        this.vehicles = this.vehicles.filter(x => x.id !== id);
+        this.saveLocal(LS_VEHICLES, this.vehicles);
+        if (this.isFirestoreConnected && this.db) {
+          try {
+            await deleteDoc(doc(this.db, `${BASE_PATH}/vehicles`, id));
+          } catch (e) { console.warn("Delete vehicle sync:", e); }
+        }
+      }
+
+      async savePurposes() {
+        this.saveLocal(LS_PURPOSES, this.purposes);
+        if (this.isFirestoreConnected && this.db) {
+          try {
+            for (const p of this.purposes) {
+              await setDoc(doc(this.db, `${BASE_PATH}/purposes`, p.id), p);
+            }
+          } catch (e) { console.warn("Purposes sync:", e); }
+        }
+      }
+      async deletePurpose(id) {
+        this.purposes = this.purposes.filter(x => x.id !== id);
+        this.saveLocal(LS_PURPOSES, this.purposes);
+        if (this.isFirestoreConnected && this.db) {
+          try {
+            await deleteDoc(doc(this.db, `${BASE_PATH}/purposes`, id));
+          } catch (e) { console.warn("Delete purpose sync:", e); }
+        }
+      }
+
+      async saveAdminCreds(newId, newPassword) {
+        this.adminCreds = {
+          id: newId,
+          password: newPassword,
+          updatedAt: Date.now()
+        };
+        this.saveLocal(LS_ADMIN_CREDS, this.adminCreds);
+        if (this.isFirestoreConnected && this.db) {
+          try {
+            await setDoc(doc(this.db, `${BASE_PATH}/settings/admin_creds`), this.adminCreds);
+          } catch (e) { console.warn("Admin creds sync:", e); }
+        }
+      }
+    }
+
+    const state = new AppState();
+
+
+    // ================= CUSTOM MODALS (NO alert() / confirm()) =================
+    window.showCustomModal = function({ title, message, type = "info", confirmText = "OK", cancelText = null, onConfirm = null, onCancel = null }) {
+      const modal = document.getElementById("customModal");
+      const iconContainer = document.getElementById("modalIconContainer");
+      const titleEl = document.getElementById("modalTitle");
+      const msgEl = document.getElementById("modalMessage");
+      const btnContainer = document.getElementById("modalBtnContainer");
+
+      titleEl.textContent = title;
+      msgEl.textContent = message;
+
+      // Icon & Colors
+      if (type === "success") {
+        iconContainer.className = "w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-4 bg-emerald-100 text-emerald-600";
+        iconContainer.innerHTML = '<i data-lucide="check-circle" class="w-8 h-8"></i>';
+      } else if (type === "warning") {
+        iconContainer.className = "w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-4 bg-rose-100 text-rose-600";
+        iconContainer.innerHTML = '<i data-lucide="alert-triangle" class="w-8 h-8"></i>';
+      } else {
+        iconContainer.className = "w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-4 bg-sky-100 text-sky-600";
+        iconContainer.innerHTML = '<i data-lucide="info" class="w-8 h-8"></i>';
+      }
+
+      btnContainer.innerHTML = "";
+
+      if (cancelText) {
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.className = "flex-1 py-2.5 px-4 text-sm font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer";
+        cancelBtn.textContent = cancelText;
+        cancelBtn.onclick = () => {
+          modal.classList.add("hidden");
+          if (onCancel) onCancel();
+        };
+        btnContainer.appendChild(cancelBtn);
+      }
+
+      const confirmBtn = document.createElement("button");
+      confirmBtn.type = "button";
+      confirmBtn.className = `flex-1 py-2.5 px-4 text-sm font-bold rounded-xl text-white transition cursor-pointer ${
+        type === "warning" ? "bg-rose-600 hover:bg-rose-700" : "bg-sky-600 hover:bg-sky-700"
+      }`;
+      confirmBtn.textContent = confirmText;
+      confirmBtn.onclick = () => {
+        modal.classList.add("hidden");
+        if (onConfirm) onConfirm();
+      };
+      btnContainer.appendChild(confirmBtn);
+
+      modal.classList.remove("hidden");
+      lucide.createIcons();
+    };
+
+    function showPhotoLightbox(item) {
+      const modal = document.getElementById("photoLightboxModal");
+      document.getElementById("lightboxImg").src = item.photoBase64;
+      document.getElementById("lightboxTitle").textContent = `${item.teacherName} 先生 - ${item.vehicleName}`;
+      document.getElementById("lightboxSubtitle").textContent = `点呼日時: ${item.timestamp} | 判定: ${item.alcoholValue.toFixed(2)} mg/L (${item.isSafe ? "正常" : "警告"})`;
+
+      document.getElementById("lightboxDetails").innerHTML = `
+        <div class="grid grid-cols-2 gap-2 text-slate-700">
+          <div><strong class="text-slate-500">用件:</strong> ${item.purpose}</div>
+          <div><strong class="text-slate-500">管理者確認:</strong> ${item.confirmedByAdmin ? `✅ 検認済 (${item.confirmedAt})` : "⏳ 未確認"}</div>
+          <div class="col-span-2"><strong class="text-slate-500">メモ:</strong> ${item.memo || "なし"}</div>
+        </div>
+      `;
+
+      modal.classList.remove("hidden");
+      lucide.createIcons();
+    }
+
+    // Helper: Build direct URL for a vehicle (?vehicle=...)
+    function getVehicleDirectUrl(vehicleName) {
+      const url = new URL(window.location.origin + window.location.pathname);
+      url.searchParams.set("vehicle", vehicleName);
+      return url.toString();
+    }
+
+    // ================= QR CODE GENERATION & PRINT SHEET =================
+    function showVehicleQrModal(targetVehicleOrName = null) {
+      const modal = document.getElementById("qrPrintModal");
+      const dropdown = document.getElementById("qrVehicleSelectDropdown");
+      const urlContainer = document.getElementById("qrSingleUrlContainer");
+      const urlInput = document.getElementById("qrModalUrlInput");
+      const testOpenLink = document.getElementById("btnTestOpenQrUrl");
+      const innerArea = document.getElementById("qrPrintAreaInner");
+
+      // Populate dropdown
+      dropdown.innerHTML = "";
+      state.vehicles.forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = v.id;
+        opt.textContent = `🚗 ${v.name} (${v.model} - ${v.number})`;
+        dropdown.appendChild(opt);
+      });
+      const allOpt = document.createElement("option");
+      allOpt.value = "ALL";
+      allOpt.textContent = "📑 全公用車のQRコードを一括表示・印刷（キータグ・シール台紙用）";
+      dropdown.appendChild(allOpt);
+
+      // Determine initial selection
+      if (targetVehicleOrName === "ALL") {
+        dropdown.value = "ALL";
+      } else if (typeof targetVehicleOrName === "string") {
+        const found = state.vehicles.find(v => v.name === targetVehicleOrName || v.id === targetVehicleOrName);
+        if (found) dropdown.value = found.id;
+      } else if (targetVehicleOrName && targetVehicleOrName.id) {
+        dropdown.value = targetVehicleOrName.id;
+      } else if (state.selectedVehicle) {
+        dropdown.value = state.selectedVehicle.id;
+      } else if (state.vehicles.length > 0) {
+        dropdown.value = state.vehicles[0].id;
+      }
+
+      function renderQrModalContent() {
+        innerArea.innerHTML = "";
+        const selectedVal = dropdown.value;
+
+        if (selectedVal === "ALL") {
+          urlContainer.classList.add("hidden");
+
+          const gridWrap = document.createElement("div");
+          gridWrap.className = "text-center";
+          gridWrap.innerHTML = `
+            <div class="border-b-2 border-slate-900 pb-3 mb-5">
+              <div class="text-[11px] font-bold text-slate-500 tracking-wider">【学校公用車 車載・キータグ貼付用】</div>
+              <h3 class="text-lg font-black text-slate-950 mt-0.5">全公用車 点呼専用QRコード・個別URL台紙</h3>
+              <p class="text-xs text-slate-600 mt-1">枠線に沿って切り取り、各公用車のキーホルダーまたは運転席サンバイザーへ貼付してください。</p>
+            </div>
+            <div id="allQrCardsGrid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-left"></div>
+          `;
+          innerArea.appendChild(gridWrap);
+
+          const grid = gridWrap.querySelector("#allQrCardsGrid");
+          state.vehicles.forEach(v => {
+            const vUrl = getVehicleDirectUrl(v.name);
+            const card = document.createElement("div");
+            card.className = "border-2 border-dashed border-slate-400 rounded-2xl p-4 bg-white text-center flex flex-col items-center justify-between shadow-2xs";
+            const qrBoxId = `qr_box_${v.id}_${Date.now()}`;
+            card.innerHTML = `
+              <div class="text-[10px] font-extrabold text-slate-500 tracking-wider">【公用車点呼用 QR】</div>
+              <div class="font-black text-base text-slate-900 mt-0.5">${v.name}</div>
+              <div class="text-[10px] font-mono font-bold text-slate-600 mb-2">${v.model} / ${v.number}</div>
+              <div id="${qrBoxId}" class="p-2 bg-white border border-slate-200 rounded-xl inline-block my-1 shadow-inner"></div>
+              <div class="text-[9px] font-mono text-slate-500 truncate max-w-[190px] mt-1.5 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">${vUrl}</div>
+              <div class="text-[9px] text-slate-600 font-semibold mt-1 leading-tight">スキャンで本公用車が自動選択</div>
+            `;
+            grid.appendChild(card);
+
+            new QRCode(card.querySelector(`#${qrBoxId}`), {
+              text: vUrl,
+              width: 120,
+              height: 120,
+              colorDark: "#0f172a",
+              colorLight: "#ffffff",
+              correctLevel: QRCode.CorrectLevel.H
+            });
+          });
+
+        } else {
+          urlContainer.classList.remove("hidden");
+          const v = state.vehicles.find(x => x.id === selectedVal) || state.vehicles[0];
+          if (!v) return;
+
+          const targetUrl = getVehicleDirectUrl(v.name);
+          urlInput.value = targetUrl;
+          testOpenLink.href = targetUrl;
+
+          const singleBox = document.createElement("div");
+          singleBox.className = "max-w-sm mx-auto text-center";
+          singleBox.innerHTML = `
+            <div class="text-xs font-bold text-slate-500 tracking-wider">【公用車アルコール点呼用 QR】</div>
+            <h3 class="text-2xl font-black text-slate-950 mt-1">${v.name}</h3>
+            <p class="text-xs font-mono font-bold text-slate-600 mb-3">${v.model} / ${v.number}</p>
+            <div id="singleQrContainer" class="p-4 bg-white border border-slate-200 rounded-2xl shadow-inner inline-block my-1"></div>
+            <div class="mt-2 text-xs font-mono text-slate-600 bg-slate-50 py-1.5 px-2.5 rounded-xl border border-slate-200 break-all select-all">
+              ${targetUrl}
+            </div>
+            <p class="text-[11px] text-slate-600 font-medium mt-3 leading-relaxed">
+              公用車のキータグや運転席サンバイザーに貼付してください。<br>
+              先生がスマホカメラで読み取ると<strong>「${v.name}」</strong>が自動選択されて点呼画面が開きます。
+            </p>
+          `;
+          innerArea.appendChild(singleBox);
+
+          new QRCode(singleBox.querySelector("#singleQrContainer"), {
+            text: targetUrl,
+            width: 180,
+            height: 180,
+            colorDark: "#0f172a",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.H
+          });
+        }
+        lucide.createIcons();
+      }
+
+      dropdown.onchange = renderQrModalContent;
+      renderQrModalContent();
+
+      modal.classList.remove("hidden");
+      lucide.createIcons();
+    }
+
+
+    // ================= GEMINI AI OCR & CLIENT-SIDE IMAGE RESIZE =================
+    async function processAndAnalyzePhoto(file) {
+      const cameraTriggerBox = document.getElementById("cameraTriggerBox");
+      const previewContainer = document.getElementById("previewContainer");
+      const photoPreviewImg = document.getElementById("photoPreviewImg");
+      const photoMetaBadge = document.getElementById("photoMetaBadge");
+      const aiStatusBox = document.getElementById("aiStatusBox");
+
+      // Load Image
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const img = new Image();
+        img.onload = async () => {
+          // Client-side Canvas resize (Max 900px, JPEG quality 65%)
+          const MAX_DIM = 900;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_DIM) {
+              height = Math.round((height * MAX_DIM) / width);
+              width = MAX_DIM;
+            }
+          } else {
+            if (height > MAX_DIM) {
+              width = Math.round((width * MAX_DIM) / height);
+              height = MAX_DIM;
+            }
+          }
+
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+
+          // Draw resized image
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Add Date/Time and Vehicle watermark audit bar
+          const nowStr = new Date().toLocaleString("ja-JP");
+          const vName = state.selectedVehicle ? state.selectedVehicle.name : "未選択";
+          const tName = state.selectedTeacher ? state.selectedTeacher.name : "未選択";
+
+          const bannerHeight = Math.max(36, Math.round(height * 0.08));
+          ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
+          ctx.fillRect(0, height - bannerHeight, width, bannerHeight);
+
+          ctx.fillStyle = "#ffffff";
+          ctx.font = `bold ${Math.max(12, Math.round(bannerHeight * 0.42))}px 'Noto Sans JP', sans-serif`;
+          ctx.fillText(`【公用車点呼刻印】${nowStr} | 車両: ${vName} | 運転者: ${tName}`, 12, height - (bannerHeight * 0.35));
+
+          // Export compressed JPEG (0.65 quality -> 35KB ~ 75KB)
+          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.65);
+          state.capturedPhotoBase64 = compressedBase64;
+
+          // Calculate approximate size in KB
+          const approxKb = Math.round((compressedBase64.length * 3) / 4 / 1024);
+
+          // Show Preview
+          photoPreviewImg.src = compressedBase64;
+          photoMetaBadge.textContent = `刻印済・圧縮完了 (${approxKb} KB)`;
+          previewContainer.classList.remove("hidden");
+          cameraTriggerBox.classList.add("hidden");
+
+          // Trigger Gemini AI OCR Analysis
+          await runGeminiOCR(compressedBase64);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    async function runGeminiOCR(base64DataUrl) {
+      const aiStatusBox = document.getElementById("aiStatusBox");
+      const cleanBase64 = base64DataUrl.split(",")[1];
+
+      // Show Analyzing Spinner
+      aiStatusBox.className = "p-4 rounded-2xl border border-sky-200 bg-sky-50 text-sky-900";
+      aiStatusBox.innerHTML = `
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full border-2 border-sky-600 border-t-transparent animate-spin shrink-0"></div>
+          <div>
+            <div class="text-sm font-bold flex items-center gap-1.5">
+              <span>Gemini AIが液晶数値を解析中...</span>
+            </div>
+            <p class="text-xs text-sky-700/80 mt-0.5">チェッカーディスプレイの表示値(mg/L)を自動OCR照合しています</p>
+          </div>
+        </div>
+      `;
+
+      const apiKey = state.geminiApiKey;
+
+      if (!apiKey) {
+        // If API key is not yet set, provide helpful fallback banner with 0.00 simulation
+        setTimeout(() => {
+          state.detectedAlcoholValue = 0.00;
+          state.isAlcoholSafe = true;
+          renderAlcoholResult({
+            alcoholValue: 0.00,
+            isSafe: true,
+            detectedText: "0.00 mg/L (通常シミュレート検出)",
+            isSimulation: true
+          });
+        }, 800);
+        return;
+      }
+
+      // Call Google Gemini API (gemini-2.5-flash)
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        
+        const payload = {
+          contents: [
+            {
+              parts: [
+                {
+                  text: "You are an OCR expert analyzing an alcohol breathalyzer (アルコール検知器/チェッカー) LCD screen. Extract the numeric reading in mg/L. If 0.00 or 0 or PASS or zero alcohol detected, return alcoholValue: 0.00 and isSafe: true. If a value > 0 is displayed (e.g. 0.15 mg/L), return that value and isSafe: false. Respond STRICTLY in structured JSON format with this schema: { \"alcoholValue\": number, \"isSafe\": boolean, \"detectedText\": string }."
+                },
+                {
+                  inlineData: {
+                    mimeType: "image/jpeg",
+                    data: cleanBase64
+                  }
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0.1
+          }
+        };
+
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          throw new Error(`APIエラー: HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const candidate = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (!candidate) throw new Error("レスポンス取得失敗");
+
+        const parsed = JSON.parse(candidate);
+        const alcoholVal = typeof parsed.alcoholValue === "number" ? parsed.alcoholValue : 0.00;
+        const isSafe = alcoholVal === 0;
+
+        state.detectedAlcoholValue = alcoholVal;
+        state.isAlcoholSafe = isSafe;
+
+        renderAlcoholResult({
+          alcoholValue: alcoholVal,
+          isSafe: isSafe,
+          detectedText: parsed.detectedText || `${alcoholVal.toFixed(2)} mg/L`,
+          isSimulation: false
+        });
+
+      } catch (err) {
+        console.warn("Gemini API call failed, falling back to manual review:", err);
+        // Fallback UI
+        state.detectedAlcoholValue = 0.00;
+        state.isAlcoholSafe = true;
+        renderAlcoholResult({
+          alcoholValue: 0.00,
+          isSafe: true,
+          detectedText: "0.00 mg/L (フォールバック判定)",
+          isSimulation: true,
+          hasError: true
+        });
+      }
+    }
+
+    function renderAlcoholResult({ alcoholValue, isSafe, detectedText, isSimulation = false, hasError = false }) {
+      const aiStatusBox = document.getElementById("aiStatusBox");
+
+      if (isSafe) {
+        aiStatusBox.className = "p-4 rounded-2xl border border-emerald-300 bg-emerald-50 text-emerald-950";
+        aiStatusBox.innerHTML = `
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                <i data-lucide="check-circle" class="w-6 h-6"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900">判定: 正常</span>
+                  <span class="text-xs text-emerald-700">${isSimulation ? "(テストモード解析)" : "Gemini AI解析完了"}</span>
+                </div>
+                <div class="text-xl font-extrabold font-mono-num text-emerald-900 mt-0.5">
+                  ${alcoholValue.toFixed(2)} <span class="text-sm font-sans font-bold">mg/L (アルコール未検出)</span>
+                </div>
+              </div>
+            </div>
+            <button type="button" onclick="window.manualAdjustValuePrompt()" class="text-xs text-emerald-800 hover:text-emerald-950 underline font-medium">数値修正</button>
+          </div>
+          <p class="text-xs text-emerald-800/80 mt-2">検出テキスト: "${detectedText}" - 本日も安全運転でいってらっしゃいませ。</p>
+        `;
+      } else {
+        aiStatusBox.className = "p-4 rounded-2xl border-2 border-rose-500 bg-rose-50 text-rose-950 alert-glow";
+        aiStatusBox.innerHTML = `
+          <div class="flex items-start justify-between">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-rose-600 text-white flex items-center justify-center shrink-0 shadow-md">
+                <i data-lucide="alert-octagon" class="w-6 h-6"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-bold px-2 py-0.5 rounded-full bg-rose-200 text-rose-900">酒気帯び警告</span>
+                  <span class="text-xs font-bold text-rose-700">運転禁止！</span>
+                </div>
+                <div class="text-xl font-extrabold font-mono-num text-rose-900 mt-0.5">
+                  ${alcoholValue.toFixed(2)} <span class="text-sm font-sans font-bold">mg/L 検知</span>
+                </div>
+              </div>
+            </div>
+            <button type="button" onclick="window.manualAdjustValuePrompt()" class="text-xs text-rose-800 hover:text-rose-950 underline font-medium">数値修正</button>
+          </div>
+          <p class="text-xs text-rose-900 font-semibold mt-2">
+            基準値を超えるアルコールが検出されました。公用車の運転は絶対に行わず、安全運転管理者へ直ちに報告してください。
+          </p>
+        `;
+      }
+      lucide.createIcons();
+    }
+
+    // Master Input Modal (Custom Dialog for Inputs - ZERO browser prompt/alert)
+    function openMasterInputModal(title, fields, onSubmitCallback) {
+      const modal = document.getElementById("masterInputModal");
+      const titleEl = document.getElementById("masterInputModalTitle");
+      const container = document.getElementById("masterInputFieldsContainer");
+      const form = document.getElementById("masterInputForm");
+
+      titleEl.textContent = title;
+      container.innerHTML = "";
+
+      fields.forEach(f => {
+        const wrap = document.createElement("div");
+        if (f.type === "checkbox") {
+          wrap.className = "flex items-center gap-2 pt-1";
+          wrap.innerHTML = `
+            <input type="checkbox" id="${f.id}" ${f.default ? "checked" : ""} class="w-4 h-4 rounded text-sky-600 focus:ring-sky-500">
+            <label for="${f.id}" class="text-xs font-semibold text-slate-700">${f.label}</label>
+          `;
+        } else {
+          wrap.innerHTML = `
+            <label class="block text-xs font-semibold text-slate-700 mb-1">${f.label}</label>
+            <input type="${f.type}" id="${f.id}" ${f.step ? `step="${f.step}"` : ""} ${f.required ? "required" : ""} class="w-full text-xs bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-sky-500">
+          `;
+        }
+        container.appendChild(wrap);
+
+        // Populate default value if provided
+        if (f.defaultVal !== undefined && f.type !== "checkbox") {
+          const inputEl = wrap.querySelector(`#${f.id}`);
+          if (inputEl) inputEl.value = f.defaultVal;
+        }
+      });
+
+      form.onsubmit = (e) => {
+        e.preventDefault();
+        const result = {};
+        fields.forEach(f => {
+          const el = document.getElementById(f.id);
+          result[f.id] = f.type === "checkbox" ? el.checked : el.value.trim();
+        });
+        onSubmitCallback(result);
+        modal.classList.add("hidden");
+      };
+
+      document.getElementById("btnCancelMasterInput").onclick = () => {
+        modal.classList.add("hidden");
+      };
+
+      modal.classList.remove("hidden");
+    }
+
+    // Allow fine-tuning or correcting alcohol value if glare occurred (Custom Modal)
+    window.manualAdjustValuePrompt = function() {
+      const current = (state.detectedAlcoholValue !== null ? state.detectedAlcoholValue : 0.00).toFixed(2);
+      openMasterInputModal("アルコール測定値の手動入力・修正", [
+        { id: "adjustedVal", label: "液晶表示の測定値 (mg/L)", type: "number", step: "0.01", required: true, defaultVal: current }
+      ], (res) => {
+        const val = parseFloat(res.adjustedVal);
+        if (!isNaN(val) && val >= 0) {
+          state.detectedAlcoholValue = val;
+          state.isAlcoholSafe = val === 0;
+          renderAlcoholResult({
+            alcoholValue: val,
+            isSafe: val === 0,
+            detectedText: `手動確認値: ${val.toFixed(2)} mg/L`,
+            isSimulation: false
+          });
+        }
+      });
+    };
+
+
+    // ================= UI RENDER FUNCTIONS =================
+
+    // Render Frequent & Normal Teachers in Form
+    function renderTeacherSelectors() {
+      const frequentContainer = document.getElementById("frequentTeachersContainer");
+      const selectEl = document.getElementById("teacherSelect");
+      const displayEl = document.getElementById("selectedTeacherDisplay");
+
+      frequentContainer.innerHTML = "";
+      selectEl.innerHTML = '<option value="">▼ その他の先生から選択...</option>';
+
+      const frequentTeachers = state.teachers.filter(t => t.frequent);
+      const otherTeachers = state.teachers;
+
+      // Quick buttons for frequent teachers
+      frequentTeachers.forEach(teacher => {
+        const isSelected = state.selectedTeacher && state.selectedTeacher.id === teacher.id;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition cursor-pointer ${
+          isSelected 
+            ? "bg-sky-600 text-white shadow-md ring-2 ring-sky-300" 
+            : "bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200"
+        }`;
+        btn.innerHTML = `
+          <i data-lucide="star" class="w-3.5 h-3.5 ${isSelected ? "text-amber-300 fill-amber-300" : "text-amber-500 fill-amber-400"}"></i>
+          <span>${teacher.name}</span>
+        `;
+        btn.onclick = () => {
+          state.selectedTeacher = teacher;
+          selectEl.value = teacher.id;
+          displayEl.textContent = `${teacher.name} 先生`;
+          displayEl.className = "text-xs font-bold px-2.5 py-1 rounded-full bg-sky-100 text-sky-800 border border-sky-300";
+          renderTeacherSelectors();
+        };
+        frequentContainer.appendChild(btn);
+      });
+
+      // Dropdown options
+      otherTeachers.forEach(teacher => {
+        const opt = document.createElement("option");
+        opt.value = teacher.id;
+        opt.textContent = `${teacher.frequent ? "⭐ " : ""}${teacher.name}`;
+        if (state.selectedTeacher && state.selectedTeacher.id === teacher.id) {
+          opt.selected = true;
+        }
+        selectEl.appendChild(opt);
+      });
+
+      selectEl.onchange = (e) => {
+        const t = state.teachers.find(x => x.id === e.target.value);
+        state.selectedTeacher = t || null;
+        if (t) {
+          displayEl.textContent = `${t.name} 先生`;
+          displayEl.className = "text-xs font-bold px-2.5 py-1 rounded-full bg-sky-100 text-sky-800 border border-sky-300";
+        } else {
+          displayEl.textContent = "未選択";
+          displayEl.className = "text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-600";
+        }
+        renderTeacherSelectors();
+      };
+
+      lucide.createIcons();
+    }
+
+    // Render Vehicle Select Dropdown & Handle QR auto-detection
+    function renderVehicleSelector() {
+      const selectEl = document.getElementById("vehicleSelect");
+      const qrDetectedBanner = document.getElementById("qrDetectedBanner");
+      const qrDetectedVehicleName = document.getElementById("qrDetectedVehicleName");
+      const vehicleQrBadge = document.getElementById("vehicleQrBadge");
+
+      selectEl.innerHTML = '<option value="">▼ 公用車を選択してください...</option>';
+
+      state.vehicles.forEach(vehicle => {
+        const opt = document.createElement("option");
+        opt.value = vehicle.name;
+        opt.textContent = `${vehicle.name} (${vehicle.model} - ${vehicle.number})`;
+        selectEl.appendChild(opt);
+      });
+
+      function updateSelectedVehicleUi() {
+        const hintEl = document.getElementById("selectedVehicleQrHint");
+        const urlDisplay = document.getElementById("selectedVehicleUrlDisplay");
+        if (state.selectedVehicle) {
+          const directUrl = getVehicleDirectUrl(state.selectedVehicle.name);
+          if (urlDisplay) urlDisplay.textContent = directUrl;
+          if (hintEl) hintEl.classList.remove("hidden");
+        } else {
+          if (hintEl) hintEl.classList.add("hidden");
+        }
+      }
+
+      // Check URL search params for ?vehicle=...
+      const urlParams = new URLSearchParams(window.location.search);
+      const qrVehicleParam = urlParams.get("vehicle");
+
+      if (qrVehicleParam) {
+        const matched = state.vehicles.find(v => v.name.trim() === qrVehicleParam.trim() || v.name.includes(qrVehicleParam));
+        if (matched) {
+          state.selectedVehicle = matched;
+          selectEl.value = matched.name;
+          qrDetectedVehicleName.textContent = matched.name;
+          qrDetectedBanner.classList.remove("hidden");
+          vehicleQrBadge.classList.remove("hidden");
+        }
+      }
+
+      updateSelectedVehicleUi();
+
+      selectEl.onchange = (e) => {
+        const val = e.target.value;
+        state.selectedVehicle = state.vehicles.find(v => v.name === val) || null;
+        updateSelectedVehicleUi();
+      };
+    }
+
+    // Render Purpose Quick Cards
+    function renderPurposes() {
+      const container = document.getElementById("purposesContainer");
+      container.innerHTML = "";
+
+      state.purposes.forEach((p, idx) => {
+        const isSelected = state.selectedPurpose && state.selectedPurpose.id === p.id;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `p-3 rounded-xl text-left border text-xs sm:text-sm font-bold transition cursor-pointer ${
+          isSelected 
+            ? "border-sky-600 bg-sky-50 text-sky-900 ring-2 ring-sky-400" 
+            : "border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700"
+        }`;
+        btn.textContent = p.name;
+        btn.onclick = () => {
+          state.selectedPurpose = p;
+          renderPurposes();
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    // Render Summary Metrics in Admin Dashboard
+    function renderSummaryMetrics() {
+      const today = new Date().toLocaleDateString("ja-JP");
+
+      let todayCount = 0;
+      let pendingCount = 0;
+      let safeCount = 0;
+      let warningCount = 0;
+
+      state.inspections.forEach(item => {
+        // Check if timestamp is today
+        const isToday = item.timestamp && item.timestamp.includes(today) || (Date.now() - (item.timestampRaw || 0) < 86400000);
+        if (isToday) todayCount++;
+
+        if (!item.confirmedByAdmin) pendingCount++;
+        if (item.isSafe) safeCount++;
+        else warningCount++;
+      });
+
+      document.getElementById("metricTodayTotal").textContent = todayCount;
+      document.getElementById("metricPending").textContent = pendingCount;
+      document.getElementById("metricSafe").textContent = safeCount;
+      document.getElementById("metricWarning").textContent = warningCount;
+
+      const warningCard = document.getElementById("metricWarningCard");
+      const warningText = document.getElementById("metricWarningText");
+      if (warningCount > 0) {
+        warningCard.className = "bg-rose-50 border-2 border-rose-400 rounded-2xl p-4 sm:p-5 shadow-xs alert-glow";
+        warningText.textContent = "要確認・警告あり！";
+        warningText.className = "text-xs text-rose-700 font-bold mt-1 block";
+      } else {
+        warningCard.className = "bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs";
+        warningText.textContent = "現在警告はありません";
+        warningText.className = "text-xs text-slate-400 mt-1 block";
+      }
+
+      renderUrgentAlertBanner();
+      renderFleetStatus();
+    }
+
+    // Render Urgent Alcohol Warning Banner
+    function renderUrgentAlertBanner() {
+      const banner = document.getElementById("urgentAlertBanner");
+      const badge = document.getElementById("urgentAlertCountBadge");
+      if (!banner) return;
+
+      const warnings = state.inspections.filter(item => !item.isSafe);
+      if (warnings.length > 0) {
+        banner.classList.remove("hidden");
+        if (badge) badge.textContent = `${warnings.length}件`;
+      } else {
+        banner.classList.add("hidden");
+      }
+    }
+
+    // Render Fleet Usage Monitor Cards
+    function renderFleetStatus() {
+      const container = document.getElementById("fleetStatusContainer");
+      if (!container) return;
+      container.innerHTML = "";
+
+      const today = new Date().toLocaleDateString("ja-JP");
+      const now = Date.now();
+
+      state.vehicles.forEach(vehicle => {
+        // Find inspections today for this vehicle
+        const vInspections = state.inspections.filter(item => {
+          const matchVehicle = item.vehicleName && (item.vehicleName === vehicle.name || item.vehicleName.includes(vehicle.name));
+          if (!matchVehicle) return false;
+          return (item.timestamp && item.timestamp.includes(today)) || (now - (item.timestampRaw || 0) < 86400000);
+        });
+
+        const isRunning = vInspections.length > 0;
+        const latest = isRunning ? vInspections[0] : null;
+
+        const card = document.createElement("div");
+        card.className = `p-3.5 rounded-xl border transition ${
+          isRunning 
+            ? "bg-sky-50/70 border-sky-200 shadow-xs" 
+            : "bg-slate-50 border-slate-200"
+        }`;
+
+        card.innerHTML = `
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <div class="font-extrabold text-sm text-slate-900">${vehicle.name}</div>
+              <div class="text-[11px] font-mono text-slate-500">${vehicle.model} / ${vehicle.number}</div>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+              isRunning 
+                ? "bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold" 
+                : "bg-slate-200 text-slate-600 font-medium"
+            }">
+              ${isRunning ? `● 本日稼働 (${vInspections.length}回)` : "○ 本日待機中"}
+            </span>
+          </div>
+
+          <div class="mt-2.5 pt-2 border-t border-slate-200/80 text-[11px] text-slate-600 flex items-center justify-between">
+            <span class="truncate">${latest ? `最新: ${latest.teacherName}先生` : "本日の点呼なし"}</span>
+            <button type="button" class="btn-filter-vehicle text-[11px] text-sky-600 hover:text-sky-800 font-bold hover:underline shrink-0 ml-1">
+              台帳を絞込
+            </button>
+          </div>
+        `;
+
+        card.querySelector(".btn-filter-vehicle").onclick = () => {
+          const searchInput = document.getElementById("logSearchInput");
+          if (searchInput) {
+            searchInput.value = vehicle.name;
+            renderInspectionLogs();
+            searchInput.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        };
+
+        container.appendChild(card);
+      });
+      lucide.createIcons();
+    }
+
+    // Open Official Roll-Call Ledger Modal (点呼記録簿 帳票出力)
+    function openLedgerPrintModal(scope = "today") {
+      const modal = document.getElementById("ledgerPrintModal");
+      const tbody = document.getElementById("ledgerTableBody");
+      const printedAt = document.getElementById("ledgerPrintedAt");
+      const scopeSelect = document.getElementById("ledgerScopeSelect");
+
+      if (printedAt) printedAt.textContent = new Date().toLocaleString("ja-JP");
+      if (scopeSelect) scopeSelect.value = scope;
+
+      const now = Date.now();
+      const todayStr = new Date().toLocaleDateString("ja-JP");
+
+      let filtered = [...state.inspections];
+      if (scope === "today") {
+        filtered = filtered.filter(item => (item.timestamp && item.timestamp.includes(todayStr)) || (now - (item.timestampRaw || 0) < 86400000));
+      } else if (scope === "week") {
+        filtered = filtered.filter(item => (now - (item.timestampRaw || 0) <= 86400000 * 7));
+      } else if (scope === "month") {
+        filtered = filtered.filter(item => (now - (item.timestampRaw || 0) <= 86400000 * 30));
+      }
+
+      // Sort ascending by timestampRaw for chronological register
+      filtered.sort((a, b) => (a.timestampRaw || 0) - (b.timestampRaw || 0));
+
+      tbody.innerHTML = "";
+      if (filtered.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="9" class="p-6 text-center text-slate-400 font-medium">
+              対象期間内の点呼記録はありません
+            </td>
+          </tr>
+        `;
+      } else {
+        filtered.forEach((item, idx) => {
+          const tr = document.createElement("tr");
+          tr.className = item.isSafe ? "" : "bg-rose-50 text-rose-950 font-bold";
+          tr.innerHTML = `
+            <td class="border-r border-slate-900 p-2 text-center font-mono">${idx + 1}</td>
+            <td class="border-r border-slate-900 p-2 text-center font-mono whitespace-nowrap">${item.timestamp}</td>
+            <td class="border-r border-slate-900 p-2 font-bold">${item.teacherName}</td>
+            <td class="border-r border-slate-900 p-2">${item.vehicleName}</td>
+            <td class="border-r border-slate-900 p-2 text-center">正常使用</td>
+            <td class="border-r border-slate-900 p-2 text-center font-mono font-bold">${item.alcoholValue.toFixed(2)}</td>
+            <td class="border-r border-slate-900 p-2 text-center font-bold ${item.isSafe ? "text-slate-900" : "text-rose-600"}">
+              ${item.isSafe ? "無 (正常)" : "警告 (検出)"}
+            </td>
+            <td class="border-r border-slate-900 p-2">
+              <span class="font-bold">${item.purpose}</span>
+              ${item.memo ? ` <span class="text-slate-600">(${item.memo})</span>` : ""}
+            </td>
+            <td class="p-2 text-center">
+              ${item.confirmedByAdmin 
+                ? `<span class="inline-block border border-rose-600 text-rose-600 rounded px-1 text-[10px] font-bold">検認済</span>` 
+                : `<span class="text-slate-400 text-[10px]">未確認</span>`}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      modal.classList.remove("hidden");
+      lucide.createIcons();
+    }
+
+    // Render Inspection Logs Table
+    function renderInspectionLogs() {
+      const tbody = document.getElementById("inspectionLogsTableBody");
+      const emptyMsg = document.getElementById("emptyLogsMsg");
+      const searchTerm = (document.getElementById("logSearchInput").value || "").toLowerCase().trim();
+      const statusFilter = document.querySelector(".log-filter-tab.active")?.dataset.status || "all";
+      const dateScope = document.getElementById("logDateFilter").value || "all";
+
+      tbody.innerHTML = "";
+
+      const now = Date.now();
+      const filtered = state.inspections.filter(item => {
+        // Status filter
+        if (statusFilter === "pending" && item.confirmedByAdmin) return false;
+        if (statusFilter === "confirmed" && !item.confirmedByAdmin) return false;
+        if (statusFilter === "warning" && item.isSafe) return false;
+
+        // Date filter
+        if (dateScope === "today") {
+          const diff = now - (item.timestampRaw || 0);
+          if (diff > 86400000) return false;
+        } else if (dateScope === "week") {
+          const diff = now - (item.timestampRaw || 0);
+          if (diff > 86400000 * 7) return false;
+        }
+
+        // Search term
+        if (searchTerm) {
+          const combined = `${item.teacherName} ${item.vehicleName} ${item.purpose} ${item.memo || ""}`.toLowerCase();
+          if (!combined.includes(searchTerm)) return false;
+        }
+
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        emptyMsg.classList.remove("hidden");
+        return;
+      }
+      emptyMsg.classList.add("hidden");
+
+      filtered.forEach(item => {
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-slate-50/80 transition-colors border-b border-slate-100";
+
+        // Photo thumbnail cell
+        const photoTd = document.createElement("td");
+        photoTd.className = "py-3 px-3";
+        const thumb = document.createElement("img");
+        thumb.src = item.photoBase64;
+        thumb.alt = "点呼チェッカー写真";
+        thumb.className = "w-12 h-10 object-cover rounded-lg border border-slate-300 shadow-xs cursor-pointer hover:scale-105 transition";
+        thumb.onclick = () => showPhotoLightbox(item);
+        photoTd.appendChild(thumb);
+        tr.appendChild(photoTd);
+
+        // Date & Time
+        const dateTd = document.createElement("td");
+        dateTd.className = "py-3 px-3 text-slate-800 font-mono-num font-medium text-xs whitespace-nowrap";
+        dateTd.textContent = item.timestamp;
+        tr.appendChild(dateTd);
+
+        // Teacher Name
+        const teacherTd = document.createElement("td");
+        teacherTd.className = "py-3 px-3 font-bold text-slate-900";
+        teacherTd.textContent = `${item.teacherName} 先生`;
+        tr.appendChild(teacherTd);
+
+        // Vehicle Name
+        const vehicleTd = document.createElement("td");
+        vehicleTd.className = "py-3 px-3 text-slate-700 font-medium";
+        vehicleTd.textContent = item.vehicleName;
+        tr.appendChild(vehicleTd);
+
+        // Alcohol Value & Badge
+        const alcoTd = document.createElement("td");
+        alcoTd.className = "py-3 px-3 whitespace-nowrap";
+        if (item.isSafe) {
+          alcoTd.innerHTML = `
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 font-mono-num">
+              ${item.alcoholValue.toFixed(2)} mg/L (正常)
+            </span>
+          `;
+        } else {
+          alcoTd.innerHTML = `
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-rose-100 text-rose-800 border border-rose-300 font-mono-num alert-glow">
+              ⚠️ ${item.alcoholValue.toFixed(2)} mg/L (警告)
+            </span>
+          `;
+        }
+        tr.appendChild(alcoTd);
+
+        // Purpose & Memo
+        const purposeTd = document.createElement("td");
+        purposeTd.className = "py-3 px-3 text-xs text-slate-600 max-w-[200px]";
+        purposeTd.innerHTML = `
+          <div class="font-bold text-slate-800">${item.purpose}</div>
+          <div class="truncate text-slate-500">${item.memo || "-"}</div>
+        `;
+        tr.appendChild(purposeTd);
+
+        // Admin Confirmation Hanko / Action Cell
+        const adminTd = document.createElement("td");
+        adminTd.className = "py-3 px-3 text-center whitespace-nowrap";
+        if (item.confirmedByAdmin) {
+          adminTd.innerHTML = `
+            <div class="hanko-stamp mx-auto" title="検認済">
+              <span class="text-[10px] tracking-widest font-black">検認済</span>
+              <span class="text-[9px] font-bold">管理者</span>
+              <span class="text-[8px] font-mono leading-none">${item.confirmedAt || "確認済"}</span>
+            </div>
+          `;
+        } else {
+          const confirmBtn = document.createElement("button");
+          confirmBtn.type = "button";
+          confirmBtn.className = "px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 active:scale-95 text-white font-bold text-xs shadow-xs transition cursor-pointer flex items-center gap-1 mx-auto";
+          confirmBtn.innerHTML = '<i data-lucide="stamp" class="w-3.5 h-3.5"></i><span>確認印を押す</span>';
+          confirmBtn.onclick = async () => {
+            await state.confirmInspection(item.id);
+            renderInspectionLogs();
+            renderSummaryMetrics();
+          };
+          adminTd.appendChild(confirmBtn);
+        }
+        tr.appendChild(adminTd);
+
+        tbody.appendChild(tr);
+      });
+
+      lucide.createIcons();
+    }
+
+    // Render Master Management Tables
+    function renderMasterTables() {
+      // Vehicles
+      const vBody = document.getElementById("vehicleMasterTableBody");
+      vBody.innerHTML = "";
+      state.vehicles.forEach(v => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="px-4 py-3 font-bold text-slate-900">${v.name}</td>
+          <td class="px-4 py-3 text-slate-600">${v.model}</td>
+          <td class="px-4 py-3 font-mono font-medium text-slate-700">${v.number}</td>
+          <td class="px-4 py-3 text-center">
+            <button type="button" class="btn-gen-qr px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1 transition">
+              <i data-lucide="qr-code" class="w-3.5 h-3.5 text-emerald-600"></i> QR表示・印刷
+            </button>
+          </td>
+          <td class="px-4 py-3 text-right">
+            <button type="button" class="btn-del-vehicle text-xs text-rose-600 hover:text-rose-800 font-semibold p-1">削除</button>
+          </td>
+        `;
+
+        tr.querySelector(".btn-gen-qr").onclick = () => showVehicleQrModal(v);
+        tr.querySelector(".btn-del-vehicle").onclick = () => {
+          showCustomModal({
+            title: "公用車の削除",
+            message: `「${v.name}」を削除してもよろしいですか？`,
+            type: "warning",
+            confirmText: "削除する",
+            cancelText: "キャンセル",
+            onConfirm: async () => {
+              await state.deleteVehicle(v.id);
+              renderVehicleSelector();
+              renderMasterTables();
+            }
+          });
+        };
+        vBody.appendChild(tr);
+      });
+
+      // Teachers
+      const tBody = document.getElementById("teacherMasterTableBody");
+      tBody.innerHTML = "";
+      state.teachers.forEach(t => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="px-4 py-3 font-bold text-slate-900">${t.name}</td>
+          <td class="px-4 py-3 text-center">
+            <button type="button" class="btn-toggle-star px-2.5 py-1 text-xs font-bold rounded-lg ${
+              t.frequent ? "bg-amber-100 text-amber-800 border border-amber-300" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            } inline-flex items-center gap-1 transition">
+              <i data-lucide="star" class="w-3.5 h-3.5 ${t.frequent ? "text-amber-500 fill-amber-400" : "text-slate-400"}"></i>
+              <span>${t.frequent ? "★ 頻出 (上部表示)" : "通常リスト"}</span>
+            </button>
+          </td>
+          <td class="px-4 py-3 text-right">
+            <button type="button" class="btn-del-teacher text-xs text-rose-600 hover:text-rose-800 font-semibold p-1">削除</button>
+          </td>
+        `;
+
+        tr.querySelector(".btn-toggle-star").onclick = () => {
+          t.frequent = !t.frequent;
+          state.saveTeachers();
+          renderTeacherSelectors();
+          renderMasterTables();
+        };
+
+        tr.querySelector(".btn-del-teacher").onclick = () => {
+          showCustomModal({
+            title: "教員の削除",
+            message: `「${t.name} 先生」を名簿から削除してもよろしいですか？`,
+            type: "warning",
+            confirmText: "削除する",
+            cancelText: "キャンセル",
+            onConfirm: async () => {
+              await state.deleteTeacher(t.id);
+              renderTeacherSelectors();
+              renderMasterTables();
+            }
+          });
+        };
+        tBody.appendChild(tr);
+      });
+
+      // Purposes
+      const pList = document.getElementById("purposeMasterList");
+      pList.innerHTML = "";
+      state.purposes.forEach(p => {
+        const div = document.createElement("div");
+        div.className = "flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200";
+        div.innerHTML = `
+          <span class="text-sm font-bold text-slate-800">${p.name}</span>
+          <div class="flex items-center gap-1">
+            <button type="button" class="btn-edit-purpose text-xs text-sky-600 hover:text-sky-800 font-medium px-2 py-1">編集</button>
+            <button type="button" class="btn-del-purpose text-xs text-rose-600 hover:text-rose-800 font-medium px-2 py-1">削除</button>
+          </div>
+        `;
+
+        div.querySelector(".btn-edit-purpose").onclick = () => {
+          openMasterInputModal("運行目的・用件の編集", [
+            { id: "p_edit_name", label: "用件名 (例: 🏆 部活遠征)", type: "text", required: true, defaultVal: p.name }
+          ], async (values) => {
+            if (values.p_edit_name && values.p_edit_name.trim()) {
+              p.name = values.p_edit_name.trim();
+              await state.savePurposes();
+              renderPurposes();
+              renderMasterTables();
+            }
+          });
+        };
+
+        div.querySelector(".btn-del-purpose").onclick = () => {
+          showCustomModal({
+            title: "運行目的の削除",
+            message: `「${p.name}」を削除してもよろしいですか？`,
+            type: "warning",
+            confirmText: "削除する",
+            cancelText: "キャンセル",
+            onConfirm: async () => {
+              await state.deletePurpose(p.id);
+              renderPurposes();
+              renderMasterTables();
+            }
+          });
+        };
+        pList.appendChild(div);
+      });
+
+      // Settings Values
+      const keyInput = document.getElementById("geminiApiKeyInput");
+      const keyStatus = document.getElementById("geminiKeyStatus");
+      keyInput.value = state.geminiApiKey;
+      keyStatus.textContent = state.geminiApiKey ? "✅ APIキー設定済" : "⚠️ 未設定 (テストシミュレート中)";
+      keyStatus.className = state.geminiApiKey ? "text-xs font-bold text-emerald-600" : "text-xs font-bold text-amber-600";
+
+      document.getElementById("adminIdChangeInput").value = state.adminCreds.id;
+      document.getElementById("adminPwChangeInput").value = "";
+
+      lucide.createIcons();
+    }
+
+
+    // ================= AUDIT CSV EXPORT (BOM UTF-8) =================
+    function exportInspectionAuditCsv() {
+      if (state.inspections.length === 0) {
+        showCustomModal({
+          title: "CSV出力",
+          message: "出力可能な点呼データがありません。",
+          type: "info"
+        });
+        return;
+      }
+
+      // Column Headers matching Japanese Road Traffic Act audit logs
+      const headers = [
+        "点呼記録ID",
+        "点呼実施日時",
+        "運転者名(教員)",
+        "使用公用車",
+        "アルコール測定値(mg/L)",
+        "判定結果",
+        "運行目的・用件",
+        "行き先・詳細メモ",
+        "安全運転管理者確認状況",
+        "管理者確認日時"
+      ];
+
+      const rows = state.inspections.map(item => [
+        item.id,
+        item.timestamp,
+        item.teacherName,
+        item.vehicleName,
+        item.alcoholValue.toFixed(2),
+        item.isSafe ? "正常" : "酒気帯び警告",
+        item.purpose,
+        (item.memo || "").replace(/"/g, '""'),
+        item.confirmedByAdmin ? "検認済" : "未確認",
+        item.confirmedAt || ""
+      ]);
+
+      const csvContent = [
+        headers.map(h => `"${h}"`).join(","),
+        ...rows.map(r => r.map(c => `"${c}"`).join(","))
+      ].join("\r\n");
+
+      // Prepend UTF-8 BOM (\uFEFF) so Excel opens Japanese characters flawlessly
+      const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      a.href = url;
+      a.download = `公用車アルコール点呼台帳_${ymd}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+
+    // ================= DOWNLOAD STANDALONE SINGLE-FILE HTML =================
+    function downloadCurrentHtmlFile() {
+      const htmlContent = "<!DOCTYPE html>\n" + document.documentElement.outerHTML;
+      const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "学校公用車アルコール点呼管理システム.html";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showCustomModal({
+        title: "HTMLダウンロード完了",
+        message: "本Webアプリケーションの単一HTMLファイル（.html）を保存しました。\nどの端末やオフライン環境でもブラウザで開いて即座にご利用いただけます。",
+        type: "success"
+      });
+    }
+
+
+    // ================= EVENT LISTENERS & WIRING =================
+    document.addEventListener("DOMContentLoaded", async () => {
+      await state.initDatabase();
+
+      // Render initial state
+      renderTeacherSelectors();
+      renderVehicleSelector();
+      renderPurposes();
+      renderSummaryMetrics();
+      renderInspectionLogs();
+      renderMasterTables();
+
+      lucide.createIcons();
+
+      // Top Role Switch Button
+      const btnToggleRole = document.getElementById("btnToggleRole");
+      const roleBtnText = document.getElementById("roleBtnText");
+      const roleIcon = document.getElementById("roleIcon");
+      const viewTeacher = document.getElementById("viewTeacher");
+      const viewAdmin = document.getElementById("viewAdmin");
+
+      btnToggleRole.onclick = () => {
+        if (state.currentView === "teacher") {
+          // Open Admin login modal if not logged in
+          if (!state.isAdminLoggedIn) {
+            document.getElementById("adminLoginModal").classList.remove("hidden");
+            document.getElementById("adminLoginId").value = state.adminCreds.id;
+            document.getElementById("adminLoginPw").value = "";
+            document.getElementById("adminLoginError").classList.add("hidden");
+          } else {
+            switchView("admin");
+          }
+        } else {
+          switchView("teacher");
+        }
+      };
+
+      function switchView(target) {
+        state.currentView = target;
+        if (target === "admin") {
+          viewTeacher.classList.add("hidden");
+          viewAdmin.classList.remove("hidden");
+          roleBtnText.textContent = "先生用点呼画面へ";
+          roleIcon.setAttribute("data-lucide", "arrow-left");
+          renderSummaryMetrics();
+          renderInspectionLogs();
+          renderMasterTables();
+        } else {
+          viewTeacher.classList.remove("hidden");
+          viewAdmin.classList.add("hidden");
+          roleBtnText.textContent = "管理者画面へ";
+          roleIcon.setAttribute("data-lucide", "lock");
+        }
+        lucide.createIcons();
+      }
+
+      // Admin Login Form
+      const adminLoginForm = document.getElementById("adminLoginForm");
+      adminLoginForm.onsubmit = (e) => {
+        e.preventDefault();
+        const idVal = document.getElementById("adminLoginId").value.trim();
+        const pwVal = document.getElementById("adminLoginPw").value.trim();
+
+        if (idVal === state.adminCreds.id && pwVal === state.adminCreds.password) {
+          state.isAdminLoggedIn = true;
+          document.getElementById("adminLoginModal").classList.add("hidden");
+          document.getElementById("adminSessionInfo").textContent = `ログイン中: 管理者 (${idVal})`;
+          switchView("admin");
+        } else {
+          document.getElementById("adminLoginError").classList.remove("hidden");
+        }
+      };
+
+      document.getElementById("btnCancelAdminLogin").onclick = () => {
+        document.getElementById("adminLoginModal").classList.add("hidden");
+      };
+
+      document.getElementById("btnAdminLogout").onclick = () => {
+        state.isAdminLoggedIn = false;
+        switchView("teacher");
+        showCustomModal({
+          title: "ログアウト完了",
+          message: "安全運転管理者セッションを終了しました。",
+          type: "info"
+        });
+      };
+
+      // Header Save HTML
+      document.getElementById("btnHeaderSaveHtml").onclick = downloadCurrentHtmlFile;
+
+      // Camera Input change
+      const cameraInput = document.getElementById("cameraInput");
+      cameraInput.onchange = (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          processAndAnalyzePhoto(file);
+        }
+      };
+
+      // Inspection Form Submit
+      const inspectionForm = document.getElementById("inspectionForm");
+      inspectionForm.onsubmit = async (e) => {
+        e.preventDefault();
+
+        // Validations
+        if (!state.selectedTeacher) {
+          showCustomModal({
+            title: "入力エラー",
+            message: "運転者（先生のお名前）を選択してください。",
+            type: "warning"
+          });
+          return;
+        }
+
+        if (!state.selectedVehicle) {
+          showCustomModal({
+            title: "入力エラー",
+            message: "使用する公用車を選択してください。",
+            type: "warning"
+          });
+          return;
+        }
+
+        if (!state.capturedPhotoBase64) {
+          showCustomModal({
+            title: "入力エラー",
+            message: "アルコールチェッカーの液晶画面を撮影してください。",
+            type: "warning"
+          });
+          return;
+        }
+
+        if (!state.selectedPurpose) {
+          showCustomModal({
+            title: "入力エラー",
+            message: "運行目的・用件を選択してください。",
+            type: "warning"
+          });
+          return;
+        }
+
+        const now = new Date();
+        const inspectionRecord = {
+          id: `insp_${Date.now()}`,
+          teacherId: state.selectedTeacher.id,
+          teacherName: state.selectedTeacher.name,
+          vehicleName: state.selectedVehicle.name,
+          alcoholValue: state.detectedAlcoholValue !== null ? state.detectedAlcoholValue : 0.00,
+          isSafe: state.isAlcoholSafe !== null ? state.isAlcoholSafe : true,
+          purpose: state.selectedPurpose.name,
+          memo: document.getElementById("memoInput").value.trim(),
+          timestamp: now.toLocaleString("ja-JP", {
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit"
+          }),
+          timestampRaw: now.getTime(),
+          photoBase64: state.capturedPhotoBase64,
+          confirmedByAdmin: false,
+          confirmedAt: null
+        };
+
+        // Submit to Store / Firestore
+        await state.addInspection(inspectionRecord);
+
+        // Success dialog
+        showCustomModal({
+          title: "点呼記録を送信しました",
+          message: `${state.selectedTeacher.name} 先生、本日も安全運転でいってらっしゃいませ！\n公用車: ${state.selectedVehicle.name}\n測定値: ${inspectionRecord.alcoholValue.toFixed(2)} mg/L (${inspectionRecord.isSafe ? "正常" : "警告"})`,
+          type: inspectionRecord.isSafe ? "success" : "warning",
+          confirmText: "次の方へ（画面初期化）",
+          onConfirm: () => {
+            // Reset form for next driver
+            state.capturedPhotoBase64 = null;
+            state.detectedAlcoholValue = null;
+            state.isAlcoholSafe = null;
+            state.selectedPurpose = null;
+            document.getElementById("memoInput").value = "";
+            document.getElementById("cameraInput").value = "";
+            document.getElementById("previewContainer").classList.add("hidden");
+            document.getElementById("cameraTriggerBox").classList.remove("hidden");
+            renderPurposes();
+          }
+        });
+
+        renderSummaryMetrics();
+        renderInspectionLogs();
+      };
+
+      // Filter Toolbar events
+      document.querySelectorAll(".log-filter-tab").forEach(tab => {
+        tab.onclick = () => {
+          document.querySelectorAll(".log-filter-tab").forEach(t => {
+            t.className = "log-filter-tab px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900";
+          });
+          tab.className = "log-filter-tab px-3 py-1.5 rounded-lg active bg-white text-slate-900 shadow-xs font-bold";
+          renderInspectionLogs();
+        };
+      });
+
+      document.getElementById("logSearchInput").oninput = renderInspectionLogs;
+      document.getElementById("logDateFilter").onchange = renderInspectionLogs;
+
+      // Master Panel Toggle
+      const masterPanel = document.getElementById("masterPanel");
+      const btnToggleMasterPanel = document.getElementById("btnToggleMasterPanel");
+      const masterToggleText = document.getElementById("masterToggleText");
+
+      btnToggleMasterPanel.onclick = () => {
+        const isClosed = masterPanel.classList.contains("hidden");
+        if (isClosed) {
+          masterPanel.classList.remove("hidden");
+          masterToggleText.textContent = "マスタ管理を閉じる";
+        } else {
+          masterPanel.classList.add("hidden");
+          masterToggleText.textContent = "マスタ管理を開く";
+        }
+      };
+
+      document.getElementById("btnCloseMasterPanel").onclick = () => {
+        masterPanel.classList.add("hidden");
+        masterToggleText.textContent = "マスタ管理を開く";
+      };
+
+      // Master Tabs Switcher
+      document.querySelectorAll(".master-tab-btn").forEach(btn => {
+        btn.onclick = () => {
+          document.querySelectorAll(".master-tab-btn").forEach(b => {
+            b.className = "master-tab-btn px-3.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition";
+          });
+          btn.className = "master-tab-btn active px-3.5 py-1.5 text-xs sm:text-sm font-bold rounded-lg bg-sky-600 text-white transition";
+
+          const target = btn.dataset.target;
+          document.querySelectorAll(".master-tab-content").forEach(tc => tc.classList.add("hidden"));
+          document.getElementById(target).classList.remove("hidden");
+        };
+      });
+
+      // CSV Export Button
+      document.getElementById("btnExportCsv").onclick = exportInspectionAuditCsv;
+
+      // Batch Admin Sign-off (一括検認)
+      document.getElementById("btnBatchConfirm").onclick = () => {
+        const unconfirmed = state.inspections.filter(item => !item.confirmedByAdmin);
+        if (unconfirmed.length === 0) {
+          showCustomModal({
+            title: "一括検認",
+            message: "現在、未確認の点呼記録はありません。\nすべての記録に確認印が押印されています。",
+            type: "info"
+          });
+          return;
+        }
+
+        showCustomModal({
+          title: "一括検認の確認",
+          message: `現在未確認の点呼記録が ${unconfirmed.length} 件あります。\nすべてに管理者確認印（検認済）を押印しますか？`,
+          type: "warning",
+          confirmText: "一括押印する",
+          cancelText: "キャンセル",
+          onConfirm: async () => {
+            const nowStr = new Date().toLocaleString("ja-JP", {
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit"
+            });
+            for (const item of unconfirmed) {
+              item.confirmedByAdmin = true;
+              item.confirmedAt = nowStr;
+              if (state.isFirestoreConnected && state.db) {
+                try {
+                  await setDoc(doc(state.db, `${BASE_PATH}/inspections`, item.id), item, { merge: true });
+                } catch(e) { console.warn("Batch confirm sync:", e); }
+              }
+            }
+            state.saveLocal(LS_INSPECTIONS, state.inspections);
+            renderSummaryMetrics();
+            renderInspectionLogs();
+            renderFleetStatus();
+            showCustomModal({
+              title: "一括検認完了",
+              message: `${unconfirmed.length} 件の点呼記録に確認印を押印しました。`,
+              type: "success"
+            });
+          }
+        });
+      };
+
+      // Ledger Printable Modal Events (法定点呼記録簿 帳票出力)
+      document.getElementById("btnPrintLedger").onclick = () => openLedgerPrintModal("today");
+      document.getElementById("ledgerScopeSelect").onchange = (e) => openLedgerPrintModal(e.target.value);
+      document.getElementById("btnTriggerLedgerPrint").onclick = () => window.print();
+      document.getElementById("btnCloseLedgerModal").onclick = () => {
+        document.getElementById("ledgerPrintModal").classList.add("hidden");
+      };
+
+      // Urgent Warning Alert Button Navigation
+      document.getElementById("btnFilterUrgentWarnings").onclick = () => {
+        const warningTab = document.querySelector('.log-filter-tab[data-status="warning"]');
+        if (warningTab) {
+          document.querySelectorAll(".log-filter-tab").forEach(t => {
+            t.className = "log-filter-tab px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900";
+          });
+          warningTab.className = "log-filter-tab px-3 py-1.5 rounded-lg active bg-white text-slate-900 shadow-xs font-bold";
+          renderInspectionLogs();
+          const table = document.getElementById("inspectionLogsTableBody");
+          if (table) table.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      };
+
+      // Drag & Drop on Camera Trigger Box
+      const triggerBox = document.getElementById("cameraTriggerBox");
+      if (triggerBox) {
+        triggerBox.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          triggerBox.classList.add("border-sky-500", "bg-sky-100/60");
+        });
+        triggerBox.addEventListener("dragleave", () => {
+          triggerBox.classList.remove("border-sky-500", "bg-sky-100/60");
+        });
+        triggerBox.addEventListener("drop", (e) => {
+          e.preventDefault();
+          triggerBox.classList.remove("border-sky-500", "bg-sky-100/60");
+          const file = e.dataTransfer.files?.[0];
+          if (file && file.type.startsWith("image/")) {
+            processAndAnalyzePhoto(file);
+          }
+        });
+      }
+
+      // Demo Simulation Buttons
+      document.getElementById("btnSimulateSafe").onclick = () => {
+        const vName = state.selectedVehicle ? state.selectedVehicle.name : "公用車1号";
+        const tName = state.selectedTeacher ? state.selectedTeacher.name : "テスト教員";
+        const simBase64 = createDemoCheckerCanvas(0.00, "0.00 mg/L PASS", vName, tName);
+
+        state.capturedPhotoBase64 = simBase64;
+        state.detectedAlcoholValue = 0.00;
+        state.isAlcoholSafe = true;
+
+        const photoPreviewImg = document.getElementById("photoPreviewImg");
+        const photoMetaBadge = document.getElementById("photoMetaBadge");
+        const previewContainer = document.getElementById("previewContainer");
+        const cameraTriggerBox = document.getElementById("cameraTriggerBox");
+
+        photoPreviewImg.src = simBase64;
+        photoMetaBadge.textContent = "刻印済・シミュレーション画像 (45 KB)";
+        previewContainer.classList.remove("hidden");
+        cameraTriggerBox.classList.add("hidden");
+
+        renderAlcoholResult({
+          alcoholValue: 0.00,
+          isSafe: true,
+          detectedText: "0.00 mg/L PASS",
+          isSimulation: true
+        });
+      };
+
+      document.getElementById("btnSimulateWarning").onclick = () => {
+        const vName = state.selectedVehicle ? state.selectedVehicle.name : "公用車1号";
+        const tName = state.selectedTeacher ? state.selectedTeacher.name : "テスト教員";
+        const simBase64 = createDemoCheckerCanvas(0.15, "0.15 mg/L WARNING", vName, tName);
+
+        state.capturedPhotoBase64 = simBase64;
+        state.detectedAlcoholValue = 0.15;
+        state.isAlcoholSafe = false;
+
+        const photoPreviewImg = document.getElementById("photoPreviewImg");
+        const photoMetaBadge = document.getElementById("photoMetaBadge");
+        const previewContainer = document.getElementById("previewContainer");
+        const cameraTriggerBox = document.getElementById("cameraTriggerBox");
+
+        photoPreviewImg.src = simBase64;
+        photoMetaBadge.textContent = "刻印済・シミュレーション画像 (48 KB)";
+        previewContainer.classList.remove("hidden");
+        cameraTriggerBox.classList.add("hidden");
+
+        renderAlcoholResult({
+          alcoholValue: 0.15,
+          isSafe: false,
+          detectedText: "0.15 mg/L WARNING (酒気帯び)",
+          isSimulation: true
+        });
+      };
+
+      // Close Lightbox
+      document.getElementById("btnCloseLightbox").onclick = () => {
+        document.getElementById("photoLightboxModal").classList.add("hidden");
+      };
+
+      // Close QR Modal
+      document.getElementById("btnCloseQrModal").onclick = () => {
+        document.getElementById("qrPrintModal").classList.add("hidden");
+      };
+      document.getElementById("btnCloseQrModalBottom").onclick = () => {
+        document.getElementById("qrPrintModal").classList.add("hidden");
+      };
+      document.getElementById("btnTriggerPrint").onclick = () => {
+        window.print();
+      };
+
+      // Gemini Key Save
+      document.getElementById("btnSaveGeminiKey").onclick = () => {
+        const key = document.getElementById("geminiApiKeyInput").value.trim();
+        state.geminiApiKey = key;
+        localStorage.setItem(LS_GEMINI_KEY, key);
+        renderMasterTables();
+        showCustomModal({
+          title: "Gemini API設定",
+          message: key ? "Gemini APIキーを保存しました。" : "Gemini APIキーを消去しました。",
+          type: "success"
+        });
+      };
+
+      // Admin Creds Save
+      document.getElementById("btnSaveAdminCreds").onclick = () => {
+        const newId = document.getElementById("adminIdChangeInput").value.trim();
+        const newPw = document.getElementById("adminPwChangeInput").value.trim();
+
+        if (!newId || !newPw) {
+          showCustomModal({
+            title: "入力エラー",
+            message: "IDおよび新しいパスワードを入力してください。",
+            type: "warning"
+          });
+          return;
+        }
+
+        state.saveAdminCreds(newId, newPw);
+        showCustomModal({
+          title: "管理者情報更新",
+          message: "管理者IDおよびパスワードを更新・保存しました。",
+          type: "success"
+        });
+      };
+
+      // Master Add Vehicle
+      document.getElementById("btnAddVehicleBtn").onclick = () => {
+        openMasterInputModal("新規公用車の登録", [
+          { id: "v_name", label: "車両呼称 (例: 公用車4号)", type: "text", required: true },
+          { id: "v_model", label: "車種 (例: ノア 7人乗)", type: "text", required: true },
+          { id: "v_number", label: "登録ナンバー (例: 品川 500 つ 34-56)", type: "text", required: true }
+        ], (values) => {
+          state.vehicles.push({
+            id: `v_${Date.now()}`,
+            name: values.v_name,
+            model: values.v_model,
+            number: values.v_number,
+            active: true,
+            createdAt: Date.now()
+          });
+          state.saveVehicles();
+          renderVehicleSelector();
+          renderMasterTables();
+        });
+      };
+
+      // Master Add Teacher
+      document.getElementById("btnAddTeacherBtn").onclick = () => {
+        openMasterInputModal("教職員名簿の追加", [
+          { id: "t_name", label: "先生の氏名 (例: 山田 太郎)", type: "text", required: true },
+          { id: "t_frequent", label: "よく乗車する先生（★上部クイック表示）", type: "checkbox", default: true }
+        ], (values) => {
+          state.teachers.push({
+            id: `t_${Date.now()}`,
+            name: values.t_name,
+            frequent: values.t_frequent,
+            createdAt: Date.now()
+          });
+          state.saveTeachers();
+          renderTeacherSelectors();
+          renderMasterTables();
+        });
+      };
+
+      // Master Add Purpose
+      document.getElementById("btnAddPurposeBtn").onclick = () => {
+        openMasterInputModal("運行目的・用件の追加", [
+          { id: "p_name", label: "用件名 (絵文字＋名称、例: ⚽ 対外試合遠征)", type: "text", required: true }
+        ], (values) => {
+          state.purposes.push({
+            id: `p_${Date.now()}`,
+            name: values.p_name,
+            createdAt: Date.now()
+          });
+          state.savePurposes();
+          renderPurposes();
+          renderMasterTables();
+        });
+      };
+
+      // Vehicle QR & Direct URL Handlers (Step 2 & QR Modal)
+      document.getElementById("btnOpenVehicleQrModal").onclick = () => {
+        showVehicleQrModal(state.selectedVehicle || "ALL");
+      };
+
+      document.getElementById("btnShowSelectedVehicleQr").onclick = () => {
+        if (state.selectedVehicle) {
+          showVehicleQrModal(state.selectedVehicle);
+        }
+      };
+
+      document.getElementById("btnCopySelectedVehicleUrl").onclick = async () => {
+        if (!state.selectedVehicle) return;
+        const targetUrl = getVehicleDirectUrl(state.selectedVehicle.name);
+        try {
+          await navigator.clipboard.writeText(targetUrl);
+        } catch (err) {
+          const ta = document.createElement("textarea");
+          ta.value = targetUrl;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          document.body.removeChild(ta);
+        }
+        const textSpan = document.getElementById("copyUrlBtnText");
+        if (textSpan) {
+          textSpan.textContent = "コピー完了！";
+          setTimeout(() => { textSpan.textContent = "URLコピー"; }, 2000);
+        }
+      };
+
+      document.getElementById("btnCopyQrModalUrl").onclick = async () => {
+        const input = document.getElementById("qrModalUrlInput");
+        if (!input || !input.value) return;
+        try {
+          await navigator.clipboard.writeText(input.value);
+        } catch (err) {
+          input.select();
+          document.execCommand("copy");
+        }
+        const fb = document.getElementById("qrUrlCopyFeedback");
+        if (fb) {
+          fb.classList.remove("hidden");
+          setTimeout(() => { fb.classList.add("hidden"); }, 2000);
+        }
+      };
+
+    });
+  </script>
+</body>
+</html>

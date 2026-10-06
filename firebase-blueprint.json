@@ -1,0 +1,95 @@
+{
+  "entities": {
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Registered faculty member eligible for public vehicle driving",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "frequent": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "name", "frequent", "createdAt"]
+    },
+    "Vehicle": {
+      "title": "Vehicle",
+      "description": "School public vehicle",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "model": { "type": "string" },
+        "number": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "name", "model", "number", "active", "createdAt"]
+    },
+    "Purpose": {
+      "title": "Purpose",
+      "description": "Driving purpose or school duty category",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "name", "createdAt"]
+    },
+    "Inspection": {
+      "title": "Inspection",
+      "description": "Alcohol check and pre-driving roll-call inspection record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "vehicleName": { "type": "string" },
+        "alcoholValue": { "type": "number" },
+        "isSafe": { "type": "boolean" },
+        "purpose": { "type": "string" },
+        "memo": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "timestampRaw": { "type": "number" },
+        "photoBase64": { "type": "string" },
+        "confirmedByAdmin": { "type": "boolean" },
+        "confirmedAt": { "type": "string" }
+      },
+      "required": ["id", "teacherName", "vehicleName", "alcoholValue", "isSafe", "purpose", "timestamp", "timestampRaw", "photoBase64"]
+    },
+    "AdminCreds": {
+      "title": "AdminCreds",
+      "description": "Administrator login credentials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "password": { "type": "string" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "password"]
+    }
+  },
+  "firestore": {
+    "/artifacts/eb100f21-abdd-4986-9f98-e659fbcc2650/public/data/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Collection of school teachers"
+    },
+    "/artifacts/eb100f21-abdd-4986-9f98-e659fbcc2650/public/data/vehicles/{vehicleId}": {
+      "schema": "Vehicle",
+      "description": "Collection of school official vehicles"
+    },
+    "/artifacts/eb100f21-abdd-4986-9f98-e659fbcc2650/public/data/purposes/{purposeId}": {
+      "schema": "Purpose",
+      "description": "Collection of pre-driving purposes"
+    },
+    "/artifacts/eb100f21-abdd-4986-9f98-e659fbcc2650/public/data/inspections/{inspectionId}": {
+      "schema": "Inspection",
+      "description": "Collection of roll call alcohol inspection logs"
+    },
+    "/artifacts/eb100f21-abdd-4986-9f98-e659fbcc2650/public/data/settings/admin_creds": {
+      "schema": "AdminCreds",
+      "description": "Admin credential configuration"
+    }
+  }
+}

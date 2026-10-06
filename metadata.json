@@ -1,0 +1,6 @@
+{
+  "name": "学校向け公用車アルコールチェック・運行管理システム",
+  "description": "中学校・高校・特別支援学校等において、乗車前のアルコール点呼をスマホで完結し、Gemini AIによるチェッカー数値自動解析と安全運転管理者のリアルタイム確認・台帳管理を行うWebアプリケーション。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
